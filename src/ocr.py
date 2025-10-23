@@ -82,6 +82,7 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         import tempfile
+        import pdf2image
 
         # Konvertiere PDF zu Bildern
         print("Konvertiere PDF zu Bildern...")
