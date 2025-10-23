@@ -63,7 +63,7 @@ def detect_language_from_text(text):
     
     return detected_lang
 
-def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
+def create_pdf_with_text(original_pdf_path, extracted_texts, output_path, images_cache=None):
     """Erstellt eine neue PDF mit dem extrahierten Text als durchsuchbaren Text."""
     try:
         print(f"Erstelle PDF mit integriertem Text: {output_path}")
@@ -84,26 +84,30 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
         import tempfile
         import pdf2image
 
-        # Konvertiere PDF zu Bildern
-        print("Konvertiere PDF zu Bildern...")
-        try:
-            images = pdf2image.convert_from_path(
-                original_pdf_path,
-                dpi=300,
-                fmt='jpeg',
-                thread_count=1
-            )
-            print(f"Anzahl Bilder: {len(images)}")
-            
-            if not images:
-                print("FEHLER: Keine Bilder aus PDF konvertiert")
-                return False
+        # Konvertiere PDF zu Bildern (oder verwende Cache)
+        if images_cache:
+            print(f"Verwende gecachte Bilder: {len(images_cache)} Seiten")
+            images = images_cache
+        else:
+            print("Konvertiere PDF zu Bildern...")
+            try:
+                images = pdf2image.convert_from_path(
+                    original_pdf_path,
+                    dpi=300,
+                    fmt='jpeg',
+                    thread_count=1
+                )
+                print(f"Anzahl Bilder: {len(images)}")
                 
-        except Exception as e:
-            print(f"FEHLER beim Konvertieren der PDF zu Bildern: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+                if not images:
+                    print("FEHLER: Keine Bilder aus PDF konvertiert")
+                    return False
+                    
+            except Exception as e:
+                print(f"FEHLER beim Konvertieren der PDF zu Bildern: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
 
         # Erstelle eine neue PDF mit ReportLab
         print("Erstelle neue PDF mit ReportLab...")
@@ -386,7 +390,8 @@ def extract_text_from_pdf(file_stream):
             if any(ocr_texts):  # Falls mindestens eine Seite Text hat
                 output_pdf_path = temp_file_path.replace('.pdf', '_with_text.pdf')
                 print(f"DEBUG: Erstelle PDF mit Text: {output_pdf_path}")
-                success = create_pdf_with_text(temp_file_path, ocr_texts, output_pdf_path)
+                # Verwende die bereits konvertierten Bilder (Cache)
+                success = create_pdf_with_text(temp_file_path, ocr_texts, output_pdf_path, images_cache=images)
                 print(f"DEBUG: PDF-Erstellung erfolgreich: {success}")
                 
                 if success:
