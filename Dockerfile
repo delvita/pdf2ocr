@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-eng \
     libjpeg62-turbo \
     zlib1g \
+    curl \  # Hinzugefügt für Healthcheck
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -40,5 +41,5 @@ USER appuser
 ENV PYTHONUNBUFFERED=1
 EXPOSE 5000
 
-# Use Gunicorn for production-ready server (Coolify will expect an entrypoint/cmd)
+# Use Gunicorn for production-ready server
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "src.api:app"]

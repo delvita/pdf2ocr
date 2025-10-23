@@ -7,9 +7,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5000:5000"
-    # In production (Coolify) avoid mounting the source directory. Use the built image.
-    # volumes:
-    #   - .:/app  # uncomment for local development only
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
@@ -17,7 +14,7 @@ services:
       - API_KEY=${API_KEY:-}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:5000/health\")' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
