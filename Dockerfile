@@ -15,10 +15,14 @@ RUN pip wheel --no-cache-dir --wheel-dir=/wheels -r /wheels/requirements.txt
 ### Runtime: smaller image with only runtime dependencies
 FROM python:3.9-slim
 
-# Install runtime OS packages (tesseract and minimal libs for Pillow)
+# Install runtime OS packages (tesseract, poppler for PDF processing, and minimal libs for Pillow)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
+    tesseract-ocr-deu \
+    tesseract-ocr-fra \
+    tesseract-ocr-ita \
+    poppler-utils \
     libjpeg62-turbo \
     zlib1g \
     curl \

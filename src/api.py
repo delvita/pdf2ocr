@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, redirect
 from flasgger import Swagger
-from .ocr import process_image
+from .ocr import process_file
 from .utils import require_api_key
 
 app = Flask(__name__)
@@ -98,7 +98,22 @@ def ocr_endpoint():
         tags:
           - OCR
         summary: Extract text from image
-        description: Extrahiert Text aus einem hochgeladenen Bild mittels OCR
+        description: |
+          Extrahiert Text aus hochgeladenen Dateien mittels OCR.
+          
+          **Unterstützte Formate:**
+          - **PDF**: Direkte Textextraktion oder OCR nach Bildkonvertierung
+          - **Bilder**: PNG, JPG, JPEG, GIF, BMP, TIFF
+          
+          **Verarbeitung:**
+          - PDFs werden zuerst auf eingebetteten Text geprüft
+          - Falls kein Text gefunden wird, werden PDF-Seiten zu Bildern konvertiert und OCR angewendet
+          - Bilder werden direkt mit OCR verarbeitet
+          
+          **Automatische Spracherkennung:**
+          - Erkennt automatisch Deutsch, Englisch, Französisch und Italienisch
+          - Optimiert OCR-Genauigkeit basierend auf erkannten Sprachen
+          - Fallback auf Mehrsprachen-Modus bei unsicherer Erkennung
         security:
           - ApiKeyAuth: []
           - BearerAuth: []
@@ -107,7 +122,7 @@ def ocr_endpoint():
             name: file
             type: file
             required: true
-            description: Bilddatei für OCR-Verarbeitung
+            description: Datei für OCR-Verarbeitung (PDF oder Bild)
         responses:
           200:
             description: Text erfolgreich extrahiert
@@ -116,7 +131,7 @@ def ocr_endpoint():
               properties:
                 text:
                   type: string
-                  example: "Dies ist der extrahierte Text aus dem Bild."
+                  example: "Dies ist der extrahierte Text aus der Datei."
           400:
             description: Ungültige Anfrage
             schema:
@@ -151,7 +166,7 @@ def ocr_endpoint():
                 return jsonify({'error': 'No selected file'}), 400
 
         try:
-                text = process_image(file)
+                text = process_file(file.stream, file.filename)
                 return jsonify({'text': text}), 200
         except Exception as e:
                 return jsonify({'error': str(e)}), 500
