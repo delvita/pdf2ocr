@@ -64,8 +64,15 @@ def health():
             status:
               type: string
               example: ok
+            timestamp:
+              type: string
+              example: "2025-10-23T19:09:00Z"
     """
-    return jsonify({"status": "ok"}), 200
+    import datetime
+    return jsonify({
+        "status": "ok", 
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z"
+    }), 200
 
 
 if __name__ == '__main__':

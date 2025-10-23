@@ -14,7 +14,8 @@ services:
       - API_KEY=${API_KEY:-}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || wget --no-verbose --tries=1 --spider http://localhost:5000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
