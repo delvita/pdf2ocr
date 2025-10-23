@@ -91,11 +91,12 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path, images
         else:
             print("Konvertiere PDF zu Bildern...")
             try:
+                # Reduziere DPI für schnellere Verarbeitung (200 statt 300)
                 images = pdf2image.convert_from_path(
                     original_pdf_path,
-                    dpi=300,
+                    dpi=200,
                     fmt='jpeg',
-                    thread_count=1
+                    thread_count=2
                 )
                 print(f"Anzahl Bilder: {len(images)}")
                 
@@ -160,13 +161,17 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path, images
                 try:
                     # Führe OCR mit Positionsdaten durch
                     print(f"Extrahiere Positionsdaten für Seite {i+1}...")
+                    import time
+                    start_time = time.time()
                     
                     # Verwende pytesseract um Wort-Positionen zu erhalten
                     import pytesseract
                     from PIL import Image
                     
                     # Lade das Bild für OCR mit Positionsdaten
+                    print(f"Starte OCR für Seite {i+1}...")
                     ocr_data = pytesseract.image_to_data(image, lang='deu+eng+fra+ita', output_type=pytesseract.Output.DICT)
+                    print(f"OCR für Seite {i+1} abgeschlossen in {time.time() - start_time:.2f}s")
                     
                     # Skalierungsfaktor berechnen (Bild zu PDF)
                     image_width, image_height = image.size
@@ -357,7 +362,7 @@ def extract_text_from_pdf(file_stream):
         try:
             # PDF zu Bildern konvertieren
             print("Konvertiere PDF zu Bildern...")
-            images = convert_from_path(temp_file_path, dpi=300)  # Höhere DPI für bessere OCR
+            images = convert_from_path(temp_file_path, dpi=200)  # Optimiert für Performance (200 DPI)
             print(f"PDF zu {len(images)} Bildern konvertiert")
             
             # OCR auf jedes Bild anwenden und Text pro Seite sammeln
