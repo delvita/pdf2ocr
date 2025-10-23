@@ -173,32 +173,7 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
 
                             y_position -= 2  # Sehr enger Zeilenabstand
 
-                    # Zusätzlich: Text als sichtbaren Layer für Benutzerfreundlichkeit
-                    # (optional - kann auskommentiert werden)
-                    c.setFillColor(Color(1, 1, 1, 0.8))  # Halbtransparenter weißer Hintergrund
-                    c.setFont("Helvetica", 10)
-
-                    # Text-Box mit halbtransparentem Hintergrund
-                    text_box_height = min(200, len(lines) * 12 + 20)
-                    c.rect(40, A4[1] - text_box_height - 10, A4[0] - 80, text_box_height, fill=1, stroke=0)
-
-                    # Text sichtbar hinzufügen
-                    c.setFillColor(colors.black)
-                    y_position = A4[1] - 30
-                    for line in lines[:15]:  # Nur erste 15 Zeilen sichtbar
-                        line = line.strip()
-                        if line:
-                            c.drawString(50, y_position, line)
-                            y_position -= 12
-
-                            # Neue Seite wenn nötig
-                            if y_position < 50:
-                                c.showPage()
-                                if temp_image_path and os.path.exists(temp_image_path):
-                                    c.drawImage(temp_image_path, 0, 0, width=A4[0], height=A4[1])
-                                y_position = A4[1] - 30
-
-                    print(f"Text für Seite {i+1} als unsichtbaren und sichtbaren Layer hinzugefügt")
+                    print(f"Text für Seite {i+1} als unsichtbaren durchsuchbaren Layer hinzugefügt")
 
                 except Exception as e:
                     print(f"Fehler beim Hinzufügen von Text zu Seite {i+1}: {e}")
