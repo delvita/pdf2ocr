@@ -122,6 +122,29 @@ Nachdem die App gestartet ist, ist die Swagger UI unter folgender URL erreichbar
 
 Dort kannst du die `/api/ocr`-Route testen und das erwartete Form-Data (file) direkt im Browser senden.
 
+## Deployment: Coolify / Production
+Kurze Anleitung, wie du die Anwendung in Coolify oder allgemein in einer Produktionsumgebung betreiben kannst.
+
+1) `.env.example` kopieren und anpassen:
+```bash
+cp .env.example .env
+# Bearbeite .env und setze API_KEY
+```
+
+2) Coolify: In Coolify wähle dein Git-Repository und verwende den Standard-Build. Unsere Einstellungen sind production-freundlich:
+- Der `Dockerfile` ist multi-stage und erzeugt ein schlankes Runtime-Image.
+- `Procfile` ist vorhanden, Coolify verwendet es falls nötig; das Default-CMD ist `gunicorn -w 4 -b 0.0.0.0:5000 src.api:app`.
+
+3) Lokale Entwicklung mit Docker Compose (optional):
+- `docker-compose.override.yml` mountet das Quellverzeichnis und startet Gunicorn in Entwicklungsmodus.
+
+4) Healthchecks
+- Der Service hat einen `/health` Endpoint. Coolify kann diesen Endpoint für Healthchecks nutzen.
+
+5) Hinweise
+- Entferne in der produktiven Umgebung das Volume-Mount, damit die gebaute Image-Nutzung konsistent bleibt (das Standard `docker-compose.yml` enthält bereits ein kommentiertes Beispiel).
+
+
 ## Contributing
 Contributions are welcome! Please submit a pull request or open an issue for any enhancements or bug fixes.
 
