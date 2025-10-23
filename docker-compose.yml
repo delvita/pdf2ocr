@@ -13,6 +13,7 @@ services:
       # Optional: set an API key to protect the webhook. If unset, no API key is required.
       - API_KEY=${API_KEY:-}
     restart: unless-stopped
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:5000/health || wget --no-verbose --tries=1 --spider http://localhost:5000/health || exit 1"]
       interval: 30s

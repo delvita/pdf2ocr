@@ -77,3 +77,14 @@ def health():
 
 if __name__ == '__main__':
         app.run(host='0.0.0.0', port=5000)
+
+@app.route('/apidocs')
+def apidocs():
+    """Redirect to Swagger UI"""
+    from flask import redirect
+    return redirect('/apidocs/')
+
+@app.route('/apidocs/')
+def apidocs_ui():
+    """Swagger UI endpoint"""
+    return swagger.template
