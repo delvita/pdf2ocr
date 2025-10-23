@@ -166,9 +166,14 @@ def ocr_endpoint():
                 return jsonify({'error': 'No selected file'}), 400
 
         try:
+                print(f"API: Verarbeite Datei {file.filename}")
                 text = process_file(file.stream, file.filename)
+                print(f"API: Ergebnis: {len(text) if text else 0} Zeichen")
                 return jsonify({'text': text}), 200
         except Exception as e:
+                print(f"API: Fehler: {e}")
+                import traceback
+                traceback.print_exc()
                 return jsonify({'error': str(e)}), 500
 
 

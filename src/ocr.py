@@ -66,44 +66,75 @@ def detect_language_from_text(text):
 def extract_text_with_language_detection(image_stream, initial_text=""):
     """Extrahiert Text mit automatischer Spracherkennung."""
     try:
+        print(f"OCR-Verarbeitung gestartet...")
+        
         # Bild aus Stream öffnen
         image = Image.open(image_stream)
+        print(f"Bild geladen: {image.size[0]}x{image.size[1]} Pixel")
         
         # Wenn bereits Text vorhanden ist, verwende ihn für Spracherkennung
         if initial_text:
             detected_lang = detect_language_from_text(initial_text)
+            print(f"Sprache erkannt: {detected_lang}")
         else:
             # Erst mit Standard-Sprachen versuchen
             detected_lang = 'deu+eng+fra+ita'
+            print(f"Verwende Standard-Sprachen: {detected_lang}")
         
         # OCR mit erkannten Sprachen
+        print(f"Führe OCR durch mit Sprachen: {detected_lang}")
         text = pytesseract.image_to_string(image, lang=detected_lang)
+        print(f"OCR-Ergebnis: {len(text)} Zeichen")
         
         # Falls wenig Text gefunden wurde, mit allen Sprachen erneut versuchen
         if not text.strip() or len(text.strip()) < 10:
+            print("Wenig Text gefunden, versuche mit allen Sprachen...")
             text = pytesseract.image_to_string(image, lang='deu+eng+fra+ita')
+            print(f"OCR mit allen Sprachen: {len(text)} Zeichen")
         
-        return text.strip() if text.strip() else None
+        result = text.strip() if text.strip() else None
+        if result:
+            print(f"OCR erfolgreich: {len(result)} Zeichen extrahiert")
+        else:
+            print("OCR: Kein Text gefunden")
+        
+        return result
         
     except Exception as e:
         print(f"Fehler beim Verarbeiten des Bildes: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def extract_text_from_pdf(file_stream):
     """Extrahiert Text aus einer PDF-Datei."""
     try:
+        print(f"PDF-Verarbeitung gestartet...")
+        
         # Zuerst versuchen, Text direkt aus der PDF zu extrahieren
+        file_stream.seek(0)  # Stream zurücksetzen
         pdf_reader = PyPDF2.PdfReader(file_stream)
         text = ""
         
-        for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
+        print(f"PDF hat {len(pdf_reader.pages)} Seiten")
+        
+        for i, page in enumerate(pdf_reader.pages):
+            try:
+                page_text = page.extract_text()
+                if page_text and page_text.strip():
+                    text += page_text + "\n"
+                    print(f"Seite {i+1}: {len(page_text)} Zeichen extrahiert")
+                else:
+                    print(f"Seite {i+1}: Kein Text gefunden")
+            except Exception as e:
+                print(f"Fehler bei Seite {i+1}: {e}")
         
         # Wenn Text gefunden wurde, zurückgeben
         if text.strip():
+            print(f"Direkte PDF-Extraktion erfolgreich: {len(text)} Zeichen")
             return text.strip()
+        
+        print("Kein Text durch direkte Extraktion gefunden, versuche OCR...")
         
         # Falls kein Text gefunden wurde, PDF zu Bildern konvertieren und OCR anwenden
         file_stream.seek(0)  # Stream zurücksetzen
@@ -113,31 +144,53 @@ def extract_text_from_pdf(file_stream):
             temp_file.write(file_stream.read())
             temp_file_path = temp_file.name
         
+        print(f"Temporäre PDF-Datei erstellt: {temp_file_path}")
+        
         try:
             # PDF zu Bildern konvertieren
-            images = convert_from_path(temp_file_path)
+            print("Konvertiere PDF zu Bildern...")
+            images = convert_from_path(temp_file_path, dpi=300)  # Höhere DPI für bessere OCR
+            print(f"PDF zu {len(images)} Bildern konvertiert")
             
             # OCR auf jedes Bild anwenden mit automatischer Spracherkennung
             ocr_text = ""
-            detected_language = None
             
             for i, image in enumerate(images):
+                print(f"Verarbeite Bild {i+1}/{len(images)}...")
                 # Verwende bereits extrahierten Text für Spracherkennung
                 initial_text = text if i == 0 else ""
-                page_text = extract_text_with_language_detection(image, initial_text)
                 
-                if page_text.strip():
+                # Konvertiere PIL Image zu Bytes für OCR
+                img_bytes = io.BytesIO()
+                image.save(img_bytes, format='PNG')
+                img_bytes.seek(0)
+                
+                page_text = extract_text_with_language_detection(img_bytes, initial_text)
+                
+                if page_text and page_text.strip():
                     ocr_text += f"--- Seite {i+1} ---\n{page_text.strip()}\n\n"
+                    print(f"Seite {i+1}: {len(page_text)} Zeichen durch OCR extrahiert")
+                else:
+                    print(f"Seite {i+1}: Kein Text durch OCR gefunden")
             
-            return ocr_text.strip() if ocr_text.strip() else None
+            result = ocr_text.strip() if ocr_text.strip() else None
+            if result:
+                print(f"OCR erfolgreich: {len(result)} Zeichen insgesamt")
+            else:
+                print("OCR: Kein Text gefunden")
+            
+            return result
             
         finally:
             # Temporäre Datei löschen
             if os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
+                print(f"Temporäre Datei gelöscht: {temp_file_path}")
                 
     except Exception as e:
         print(f"Fehler beim Verarbeiten der PDF: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def extract_text_from_image(image_stream):
@@ -146,18 +199,28 @@ def extract_text_from_image(image_stream):
 
 def process_file(file_stream, filename):
     """Verarbeitet eine Datei (Bild oder PDF) und gibt den extrahierten Text zurück."""
+    print(f"Verarbeite Datei: {filename}")
+    
     # Dateierweiterung ermitteln
     file_extension = filename.lower().split('.')[-1] if '.' in filename else ''
+    print(f"Dateierweiterung erkannt: {file_extension}")
     
     if file_extension == 'pdf':
+        print("Verarbeite als PDF...")
         # PDF verarbeiten
         text = extract_text_from_pdf(file_stream)
     elif file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+        print("Verarbeite als Bild...")
         # Bild verarbeiten
         text = extract_text_from_image(file_stream)
     else:
-        return f"Unterstütztes Dateiformat nicht erkannt. Unterstützte Formate: PDF, PNG, JPG, JPEG, GIF, BMP, TIFF"
+        error_msg = f"Unterstütztes Dateiformat nicht erkannt. Unterstützte Formate: PDF, PNG, JPG, JPEG, GIF, BMP, TIFF"
+        print(error_msg)
+        return error_msg
     
     if text:
+        print(f"Text erfolgreich extrahiert: {len(text)} Zeichen")
         return text
+    
+    print("Kein Text gefunden.")
     return "Kein Text gefunden."
