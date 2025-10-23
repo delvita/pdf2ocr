@@ -188,7 +188,8 @@ def ocr_endpoint():
                         result,
                         mimetype='application/pdf',
                         headers={
-                            'Content-Disposition': f'attachment; filename="{file.filename.replace(".pdf", "_with_text.pdf")}"'
+                            'Content-Disposition': f'attachment; filename="{file.filename.replace(".pdf", "_with_text.pdf")}"',
+                            'fileName': file.filename.replace(".pdf", "_with_text.pdf")
                         }
                     )
                 else:
