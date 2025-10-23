@@ -151,34 +151,80 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
                 traceback.print_exc()
                 temp_image_path = None
 
-            # Text als durchsuchbaren Layer hinzufügen
+            # Text als durchsuchbaren Layer hinzufügen mit OCR-Positionsdaten
             if page_text.strip():
                 try:
+                    # Führe OCR mit Positionsdaten durch
+                    print(f"Extrahiere Positionsdaten für Seite {i+1}...")
+                    
+                    # Verwende pytesseract um Wort-Positionen zu erhalten
+                    import pytesseract
+                    from PIL import Image
+                    
+                    # Lade das Bild für OCR mit Positionsdaten
+                    ocr_data = pytesseract.image_to_data(image, lang='deu+eng+fra+ita', output_type=pytesseract.Output.DICT)
+                    
+                    # Skalierungsfaktor berechnen (Bild zu PDF)
+                    image_width, image_height = image.size
+                    scale_x = A4[0] / image_width
+                    scale_y = A4[1] / image_height
+                    
+                    print(f"Bild: {image_width}x{image_height}, PDF: {A4[0]}x{A4[1]}, Scale: {scale_x:.3f}x{scale_y:.3f}")
+                    
                     # Text unsichtbar machen (transparent) aber durchsuchbar
-                    c.setFillColor(Color(0, 0, 0, 0))  # Vollständig transparent
-                    c.setFont("Helvetica", 1)  # Sehr kleine Schrift
-
-                    # Text in mehreren Positionen hinzufügen für bessere Durchsuchbarkeit
-                    lines = page_text.split('\n')
-                    y_position = A4[1] - 10  # Start von oben
-
-                    for line in lines:
-                        line = line.strip()
-                        if line:  # Nur nicht-leere Zeilen
-                            # Text mehrmals an verschiedenen Positionen hinzufügen
-                            # Das erhöht die Chance, dass der Text durchsuchbar ist
-                            c.drawString(0, y_position, line)  # Links oben
-                            c.drawString(A4[0]/2, y_position, line)  # Mitte
-                            c.drawString(A4[0]-100, y_position, line)  # Rechts
-
-                            y_position -= 2  # Sehr enger Zeilenabstand
-
-                    print(f"Text für Seite {i+1} als unsichtbaren durchsuchbaren Layer hinzugefügt")
+                    c.setFillColorRGB(0, 0, 0, 0)  # Vollständig transparent
+                    c.setStrokeColorRGB(0, 0, 0, 0)  # Keine Umrandung
+                    
+                    # Gehe durch alle erkannten Wörter und platziere sie an der richtigen Position
+                    n_boxes = len(ocr_data['text'])
+                    words_added = 0
+                    
+                    for j in range(n_boxes):
+                        text = ocr_data['text'][j].strip()
+                        if text:  # Nur nicht-leere Wörter
+                            # Position und Größe aus OCR-Daten
+                            x = ocr_data['left'][j]
+                            y = ocr_data['top'][j]
+                            w = ocr_data['width'][j]
+                            h = ocr_data['height'][j]
+                            
+                            # Skaliere auf PDF-Koordinaten
+                            pdf_x = x * scale_x
+                            pdf_y = A4[1] - (y * scale_y) - (h * scale_y)  # PDF-Y ist von unten
+                            pdf_h = h * scale_y
+                            
+                            # Berechne Schriftgröße basierend auf Höhe
+                            font_size = max(1, pdf_h * 0.8)  # 80% der Höhe
+                            
+                            # Setze Schrift
+                            c.setFont("Helvetica", font_size)
+                            
+                            # Zeichne Text an der exakten Position
+                            c.drawString(pdf_x, pdf_y, text)
+                            words_added += 1
+                    
+                    print(f"Text für Seite {i+1}: {words_added} Wörter an exakten Positionen hinzugefügt")
 
                 except Exception as e:
-                    print(f"Fehler beim Hinzufügen von Text zu Seite {i+1}: {e}")
+                    print(f"Fehler beim Hinzufügen von Text mit Positionsdaten zu Seite {i+1}: {e}")
                     import traceback
                     traceback.print_exc()
+                    
+                    # Fallback: Text ohne Positionsdaten hinzufügen
+                    print(f"Fallback: Füge Text ohne Positionsdaten hinzu...")
+                    try:
+                        c.setFillColor(Color(0, 0, 0, 0))
+                        c.setFont("Helvetica", 1)
+                        lines = page_text.split('\n')
+                        y_position = A4[1] - 10
+                        for line in lines:
+                            line = line.strip()
+                            if line:
+                                c.drawString(0, y_position, line)
+                                y_position -= 2
+                        print(f"Fallback erfolgreich für Seite {i+1}")
+                    except Exception as e2:
+                        print(f"Auch Fallback fehlgeschlagen: {e2}")
 
             # Temporäre Bild-Datei aufräumen
             if temp_image_path and os.path.exists(temp_image_path):
