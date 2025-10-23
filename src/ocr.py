@@ -77,7 +77,8 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
 
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import letter, A4
-        from reportlab.lib.colors import Color, colors
+        from reportlab.lib.colors import Color
+        from reportlab.lib import colors
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         import tempfile
