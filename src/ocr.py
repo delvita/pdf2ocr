@@ -68,6 +68,17 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
     try:
         print(f"Erstelle PDF mit integriertem Text: {output_path}")
         
+        # Alternative Lösung: Erstelle eine neue PDF mit dem Text als unsichtbaren Layer
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.lib.colors import Color
+        import tempfile
+        
+        # Erstelle eine temporäre PDF mit dem Text
+        temp_pdf_path = tempfile.mktemp(suffix='.pdf')
+        
         # Originale PDF lesen
         with open(original_pdf_path, 'rb') as file:
             pdf_reader = PyPDF2.PdfReader(file)
@@ -79,47 +90,52 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
             for i, page in enumerate(pdf_reader.pages):
                 print(f"Verarbeite Seite {i+1} für Textintegration...")
                 
-                # Seite zur neuen PDF hinzufügen
-                pdf_writer.add_page(page)
-                
                 # Text für diese Seite hinzufügen (falls vorhanden)
                 if i < len(extracted_texts) and extracted_texts[i]:
                     page_text = extracted_texts[i]
+                    print(f"Integriere Text für Seite {i+1}: {len(page_text)} Zeichen")
                     
-                    # Text als unsichtbare Annotation hinzufügen
+                    # Erstelle eine neue PDF-Seite mit dem Text als unsichtbaren Layer
                     try:
-                        from PyPDF2.generic import TextStringObject, DictionaryObject, ArrayObject, NameObject
+                        # Erstelle eine temporäre PDF mit dem Text
+                        temp_text_pdf = tempfile.mktemp(suffix='.pdf')
                         
-                        # Text-Objekt erstellen
-                        text_obj = TextStringObject(page_text)
+                        # Erstelle eine PDF mit dem Text (unsichtbar)
+                        c = canvas.Canvas(temp_text_pdf, pagesize=letter)
                         
-                        # Annotation erstellen (unsichtbar)
-                        annotation = DictionaryObject({
-                            NameObject('/Type'): NameObject('/Annot'),
-                            NameObject('/Subtype'): NameObject('/FreeText'),
-                            NameObject('/Rect'): ArrayObject([0, 0, 0, 0]),  # Unsichtbar
-                            NameObject('/Contents'): text_obj,
-                            NameObject('/F'): NameObject('/Hidden'),  # Versteckt
-                        })
+                        # Text als unsichtbaren Layer hinzufügen
+                        c.setFillColor(Color(1, 1, 1, 0))  # Transparent
+                        c.setFont("Helvetica", 1)  # Sehr kleine Schrift
                         
-                        # Annotation zur Seite hinzufügen
-                        if '/Annots' not in page:
-                            page[NameObject('/Annots')] = ArrayObject()
-                        page[NameObject('/Annots')].append(annotation)
+                        # Text in sehr kleinen Zeilen hinzufügen
+                        lines = page_text.split('\n')
+                        y = 10
+                        for line in lines:
+                            if line.strip():
+                                c.drawString(0, y, line)
+                                y += 1
                         
-                        print(f"Text für Seite {i+1} integriert: {len(page_text)} Zeichen")
+                        c.save()
+                        
+                        # Lade die Text-PDF
+                        text_pdf_reader = PyPDF2.PdfReader(temp_text_pdf)
+                        text_page = text_pdf_reader.pages[0]
+                        
+                        # Merge die Text-Seite mit der Original-Seite
+                        page.merge_page(text_page)
+                        
+                        # Aufräumen
+                        os.unlink(temp_text_pdf)
+                        
+                        print(f"Text für Seite {i+1} als unsichtbaren Layer integriert")
                         
                     except Exception as e:
                         print(f"Fehler beim Hinzufügen von Text zu Seite {i+1}: {e}")
-                        # Fallback: Text als Kommentar hinzufügen
-                        try:
-                            page.add_annotation({
-                                'type': 'text',
-                                'content': page_text,
-                                'rect': (0, 0, 0, 0)  # Unsichtbar
-                            })
-                        except:
-                            pass  # Ignoriere Fehler bei Fallback
+                        import traceback
+                        traceback.print_exc()
+                
+                # Seite zur neuen PDF hinzufügen
+                pdf_writer.add_page(page)
         
         # Neue PDF speichern
         with open(output_path, 'wb') as output_file:
