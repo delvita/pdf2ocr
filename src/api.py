@@ -1,10 +1,10 @@
 from flask import Flask, request, jsonify
 from flasgger import Swagger
-from src.ocr import process_image
-from src.utils import require_api_key
+from .ocr import process_image
+from .utils import require_api_key
 
 app = Flask(__name__)
-Swagger(app)
+swagger = Swagger(app)
 
 
 @app.route('/api/ocr', methods=['POST'])
@@ -51,10 +51,21 @@ def ocr_endpoint():
                 return jsonify({'error': str(e)}), 500
 
 
-    @app.route('/health', methods=['GET'])
-    def health():
-        """Simple health endpoint used by Docker/Coolify healthchecks."""
-        return jsonify({'status': 'ok'}), 200
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint for Docker/Coolify
+    ---
+    responses:
+      200:
+        description: Service is healthy
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: ok
+    """
+    return jsonify({"status": "ok"}), 200
 
 
 if __name__ == '__main__':
