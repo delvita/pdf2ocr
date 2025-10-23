@@ -67,6 +67,13 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
     """Erstellt eine neue PDF mit dem extrahierten Text als durchsuchbaren Text."""
     try:
         print(f"Erstelle PDF mit integriertem Text: {output_path}")
+        print(f"Original PDF: {original_pdf_path}")
+        print(f"Extracted texts: {len(extracted_texts)} Seiten")
+        
+        # Prüfe ob Original-PDF existiert
+        if not os.path.exists(original_pdf_path):
+            print(f"FEHLER: Original PDF existiert nicht: {original_pdf_path}")
+            return False
 
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import letter, A4
@@ -76,17 +83,33 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
         import tempfile
 
         # Konvertiere PDF zu Bildern
-        images = pdf2image.convert_from_path(
-            original_pdf_path,
-            dpi=300,
-            fmt='jpeg',
-            thread_count=1
-        )
-
-        print(f"Anzahl Bilder: {len(images)}")
+        print("Konvertiere PDF zu Bildern...")
+        try:
+            images = pdf2image.convert_from_path(
+                original_pdf_path,
+                dpi=300,
+                fmt='jpeg',
+                thread_count=1
+            )
+            print(f"Anzahl Bilder: {len(images)}")
+            
+            if not images:
+                print("FEHLER: Keine Bilder aus PDF konvertiert")
+                return False
+                
+        except Exception as e:
+            print(f"FEHLER beim Konvertieren der PDF zu Bildern: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
         # Erstelle eine neue PDF mit ReportLab
-        c = canvas.Canvas(output_path, pagesize=A4)
+        print("Erstelle neue PDF mit ReportLab...")
+        try:
+            c = canvas.Canvas(output_path, pagesize=A4)
+        except Exception as e:
+            print(f"FEHLER beim Erstellen des Canvas: {e}")
+            return False
 
         # Für jede Seite
         for i, image in enumerate(images):
@@ -107,13 +130,23 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
             try:
                 # Speichere das PIL-Bild temporär
                 temp_image_path = tempfile.mktemp(suffix='.jpg')
+                print(f"Speichere Bild temporär: {temp_image_path}")
                 image.save(temp_image_path, 'JPEG', quality=95)
+                
+                # Prüfe ob Bild gespeichert wurde
+                if not os.path.exists(temp_image_path):
+                    print(f"FEHLER: Temporäres Bild wurde nicht gespeichert: {temp_image_path}")
+                    continue
 
                 # Bild zur PDF hinzufügen
+                print(f"Füge Bild zur PDF hinzu: {temp_image_path}")
                 c.drawImage(temp_image_path, 0, 0, width=A4[0], height=A4[1])
+                print(f"Bild erfolgreich zur PDF hinzugefügt")
 
             except Exception as e:
-                print(f"Fehler beim Hinzufügen des Bildes zu Seite {i+1}: {e}")
+                print(f"FEHLER beim Hinzufügen des Bildes zu Seite {i+1}: {e}")
+                import traceback
+                traceback.print_exc()
                 temp_image_path = None
 
             # Text als durchsuchbaren Layer hinzufügen
@@ -178,9 +211,32 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
                     pass
 
         # PDF speichern
-        c.save()
-        print(f"PDF mit integriertem Text erstellt: {output_path}")
-        return True
+        print("Speichere PDF...")
+        try:
+            c.save()
+            print(f"PDF erfolgreich gespeichert: {output_path}")
+            
+            # Prüfe ob PDF erstellt wurde
+            if not os.path.exists(output_path):
+                print(f"FEHLER: PDF wurde nicht erstellt: {output_path}")
+                return False
+                
+            # Prüfe PDF-Größe
+            file_size = os.path.getsize(output_path)
+            print(f"PDF-Größe: {file_size} Bytes")
+            
+            if file_size == 0:
+                print("FEHLER: PDF ist leer (0 Bytes)")
+                return False
+                
+            print(f"PDF mit integriertem Text erfolgreich erstellt: {output_path}")
+            return True
+            
+        except Exception as e:
+            print(f"FEHLER beim Speichern der PDF: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     except Exception as e:
         print(f"Fehler beim Erstellen der PDF mit Text: {e}")
@@ -302,9 +358,13 @@ def extract_text_from_pdf(file_stream):
                     print(f"Seite {i+1}: Kein Text durch OCR gefunden")
             
             # Erstelle PDF mit integriertem Text
+            print(f"DEBUG: OCR-Texte vorhanden: {any(ocr_texts)}")
+            print(f"DEBUG: Anzahl OCR-Texte: {len(ocr_texts)}")
             if any(ocr_texts):  # Falls mindestens eine Seite Text hat
                 output_pdf_path = temp_file_path.replace('.pdf', '_with_text.pdf')
+                print(f"DEBUG: Erstelle PDF mit Text: {output_pdf_path}")
                 success = create_pdf_with_text(temp_file_path, ocr_texts, output_pdf_path)
+                print(f"DEBUG: PDF-Erstellung erfolgreich: {success}")
                 
                 if success:
                     print(f"PDF mit integriertem Text erstellt: {output_pdf_path}")
@@ -318,6 +378,7 @@ def extract_text_from_pdf(file_stream):
                     
                     return pdf_data  # Gib PDF-Daten zurück statt Text
             
+            # Fallback: Wenn keine PDF erstellt werden konnte, gib Text zurück
             result = ocr_text_combined.strip() if ocr_text_combined.strip() else None
             if result:
                 print(f"OCR erfolgreich: {len(result)} Zeichen insgesamt")
