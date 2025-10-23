@@ -3,3 +3,4 @@ pillow==8.4.0
 pytesseract==0.3.8
 requests==2.26.0
 pytest==6.2.5
+flasgger==0.9.5

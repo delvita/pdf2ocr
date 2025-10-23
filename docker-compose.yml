@@ -12,3 +12,5 @@ services:
     environment:
       - FLASK_ENV=development
       - PYTHONUNBUFFERED=1
+      # Optional: set an API key to protect the webhook. If unset, no API key is required.
+      - API_KEY=${API_KEY:-}

@@ -45,11 +45,82 @@ pdf2ocr
 - Access the application in your web browser at `http://localhost:5000`.
 - Upload an image file to extract text using the OCR functionality.
 
+## Curl-Beispiel: Übermittlung und Response
+Kurze Anleitung, wie ein Bild per curl an den OCR-Endpoint geschickt wird und welche Antworten zu erwarten sind.
+
+1) Beispiel-Aufruf (multipart/form-data):
+```bash
+curl -v -X POST "http://localhost:5000/api/ocr" \
+  -H "Accept: application/json" \
+  -F "file=@/pfad/zum/bild.png"
+```
+- Verwende den korrekten Pfad zur Bilddatei.
+- Falls dein API-Pfad anders lautet, passe `/api/ocr` entsprechend an.
+
+2) Beispiel einer erfolgreichen JSON-Antwort (HTTP 200):
+```json
+{
+  "success": true,
+  "text": "Erkannter Text aus dem Bild...",
+  "language": "eng",
+  "pages": 1
+}
+```
+
+3) Beispiel einer Fehlerantwort (z. B. fehlende Datei, HTTP 400):
+```json
+{
+  "success": false,
+  "error": "No file part in the request" 
+}
+```
+
+4) Hinweise
+- Bei größeren Dateien oder mehreren Seiten kann die Verarbeitung länger dauern; der Response-Body enthält das erkannte Textfeld.
+- Optional: füge `-H "Authorization: Bearer <token>"` hinzu, falls der Server Authentifizierung verlangt.
+
 ## Testing
 To run the tests for the OCR functions, navigate to the `tests` directory and execute:
 ```
 pytest test_ocr.py
 ```
+
+## API-Key Schutz (optional)
+Du kannst einen API-Key setzen, damit der OCR-Webhook nur von berechtigten Clients aufgerufen werden kann. Wenn kein Key gesetzt ist, bleibt die API offen (abwärtskompatibel).
+
+- Lokales Setzen der Umgebungsvariable (Linux/macOS):
+```bash
+export API_KEY="mein-sehr-geheimer-key"
+python app.py
+```
+
+- Oder mit Docker Compose: lege eine `.env` Datei an oder setze die Variable in der Umgebung bevor du `docker-compose up` ausführst:
+```
+API_KEY=mein-sehr-geheimer-key
+```
+
+Beispiel-curl mit Header `X-API-Key`:
+```bash
+curl -X POST http://localhost:5000/api/ocr \
+  -H "X-API-Key: mein-sehr-geheimer-key" \
+  -F "file=@/pfad/zum/bild.png"
+```
+
+Oder mit `Authorization: Bearer`:
+```bash
+curl -X POST http://localhost:5000/api/ocr \
+  -H "Authorization: Bearer mein-sehr-geheimer-key" \
+  -F "file=@/pfad/zum/bild.png"
+```
+
+Wenn der key fehlt oder falsch ist, liefert der Server HTTP 401.
+
+## Swagger / API-Dokumentation
+Nachdem die App gestartet ist, ist die Swagger UI unter folgender URL erreichbar:
+
+- http://localhost:5000/apidocs/
+
+Dort kannst du die `/api/ocr`-Route testen und das erwartete Form-Data (file) direkt im Browser senden.
 
 ## Contributing
 Contributions are welcome! Please submit a pull request or open an issue for any enhancements or bug fixes.
