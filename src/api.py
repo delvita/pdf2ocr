@@ -125,13 +125,23 @@ def ocr_endpoint():
             description: Datei für OCR-Verarbeitung (PDF oder Bild)
         responses:
           200:
-            description: Text erfolgreich extrahiert
-            schema:
-              type: object
-              properties:
-                text:
+            description: |
+              **Für PDF-Dateien**: PDF mit integriertem durchsuchbarem Text wird als Download zurückgegeben
+              **Für Bilder**: Extrahierter Text wird als JSON zurückgegeben
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    text:
+                      type: string
+                      example: "Dies ist der extrahierte Text aus der Datei."
+                description: "Für Bilddateien - extrahierter Text"
+              application/pdf:
+                schema:
                   type: string
-                  example: "Dies ist der extrahierte Text aus der Datei."
+                  format: binary
+                description: "Für PDF-Dateien - PDF mit integriertem durchsuchbarem Text"
           400:
             description: Ungültige Anfrage
             schema:
@@ -167,9 +177,23 @@ def ocr_endpoint():
 
         try:
                 print(f"API: Verarbeite Datei {file.filename}")
-                text = process_file(file.stream, file.filename)
-                print(f"API: Ergebnis: {len(text) if text else 0} Zeichen")
-                return jsonify({'text': text}), 200
+                result = process_file(file.stream, file.filename)
+                
+                # Prüfe ob Ergebnis PDF-Daten oder Text ist
+                if isinstance(result, bytes):
+                    print(f"API: PDF mit integriertem Text erstellt: {len(result)} Bytes")
+                    # Gib PDF-Datei zurück
+                    from flask import Response
+                    return Response(
+                        result,
+                        mimetype='application/pdf',
+                        headers={
+                            'Content-Disposition': f'attachment; filename="{file.filename.replace(".pdf", "_with_text.pdf")}"'
+                        }
+                    )
+                else:
+                    print(f"API: Text-Ergebnis: {len(result) if result else 0} Zeichen")
+                    return jsonify({'text': result}), 200
         except Exception as e:
                 print(f"API: Fehler: {e}")
                 import traceback

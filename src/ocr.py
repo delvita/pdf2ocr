@@ -6,6 +6,10 @@ import io
 import os
 import tempfile
 import re
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 def detect_language_from_text(text):
     """Erkennt die Sprache des Textes basierend auf charakteristischen Zeichen und Wörtern."""
@@ -62,6 +66,78 @@ def detect_language_from_text(text):
         return f"{sorted_langs[0][0]}+{sorted_langs[1][0]}"
     
     return detected_lang
+
+def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
+    """Erstellt eine neue PDF mit dem extrahierten Text als durchsuchbaren Text."""
+    try:
+        print(f"Erstelle PDF mit integriertem Text: {output_path}")
+        
+        # Originale PDF lesen
+        with open(original_pdf_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            
+            # Neue PDF erstellen
+            pdf_writer = PyPDF2.PdfWriter()
+            
+            # Für jede Seite
+            for i, page in enumerate(pdf_reader.pages):
+                print(f"Verarbeite Seite {i+1} für Textintegration...")
+                
+                # Seite zur neuen PDF hinzufügen
+                pdf_writer.add_page(page)
+                
+                # Text für diese Seite hinzufügen (falls vorhanden)
+                if i < len(extracted_texts) and extracted_texts[i]:
+                    page_text = extracted_texts[i]
+                    
+                    # Text als Annotation hinzufügen (unsichtbar, aber durchsuchbar)
+                    try:
+                        # Erstelle eine unsichtbare Text-Annotation
+                        from PyPDF2.generic import TextStringObject, DictionaryObject, ArrayObject, NameObject
+                        
+                        # Text-Objekt erstellen
+                        text_obj = TextStringObject(page_text)
+                        
+                        # Annotation erstellen
+                        annotation = DictionaryObject({
+                            NameObject('/Type'): NameObject('/Annot'),
+                            NameObject('/Subtype'): NameObject('/FreeText'),
+                            NameObject('/Rect'): ArrayObject([0, 0, 0, 0]),  # Unsichtbar
+                            NameObject('/Contents'): text_obj,
+                            NameObject('/F'): NameObject('/Hidden'),  # Versteckt
+                        })
+                        
+                        # Annotation zur Seite hinzufügen
+                        if '/Annots' not in page:
+                            page[NameObject('/Annots')] = ArrayObject()
+                        page[NameObject('/Annots')].append(annotation)
+                        
+                        print(f"Text für Seite {i+1} integriert: {len(page_text)} Zeichen")
+                        
+                    except Exception as e:
+                        print(f"Fehler beim Hinzufügen von Text zu Seite {i+1}: {e}")
+                        # Fallback: Text als Kommentar hinzufügen
+                        try:
+                            page.add_annotation({
+                                'type': 'text',
+                                'content': page_text,
+                                'rect': (0, 0, 0, 0)  # Unsichtbar
+                            })
+                        except:
+                            pass  # Ignoriere Fehler bei Fallback
+        
+        # Neue PDF speichern
+        with open(output_path, 'wb') as output_file:
+            pdf_writer.write(output_file)
+        
+        print(f"PDF mit integriertem Text erstellt: {output_path}")
+        return True
+        
+    except Exception as e:
+        print(f"Fehler beim Erstellen der PDF mit Text: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def extract_text_with_language_detection(image_stream, initial_text=""):
     """Extrahiert Text mit automatischer Spracherkennung."""
@@ -152,8 +228,9 @@ def extract_text_from_pdf(file_stream):
             images = convert_from_path(temp_file_path, dpi=300)  # Höhere DPI für bessere OCR
             print(f"PDF zu {len(images)} Bildern konvertiert")
             
-            # OCR auf jedes Bild anwenden mit automatischer Spracherkennung
-            ocr_text = ""
+            # OCR auf jedes Bild anwenden und Text pro Seite sammeln
+            ocr_texts = []  # Liste für Text pro Seite
+            ocr_text_combined = ""  # Kombinierter Text für Rückgabe
             
             for i, image in enumerate(images):
                 print(f"Verarbeite Bild {i+1}/{len(images)}...")
@@ -168,12 +245,31 @@ def extract_text_from_pdf(file_stream):
                 page_text = extract_text_with_language_detection(img_bytes, initial_text)
                 
                 if page_text and page_text.strip():
-                    ocr_text += f"--- Seite {i+1} ---\n{page_text.strip()}\n\n"
+                    ocr_texts.append(page_text.strip())
+                    ocr_text_combined += f"--- Seite {i+1} ---\n{page_text.strip()}\n\n"
                     print(f"Seite {i+1}: {len(page_text)} Zeichen durch OCR extrahiert")
                 else:
+                    ocr_texts.append("")
                     print(f"Seite {i+1}: Kein Text durch OCR gefunden")
             
-            result = ocr_text.strip() if ocr_text.strip() else None
+            # Erstelle PDF mit integriertem Text
+            if any(ocr_texts):  # Falls mindestens eine Seite Text hat
+                output_pdf_path = temp_file_path.replace('.pdf', '_with_text.pdf')
+                success = create_pdf_with_text(temp_file_path, ocr_texts, output_pdf_path)
+                
+                if success:
+                    print(f"PDF mit integriertem Text erstellt: {output_pdf_path}")
+                    # Lese die neue PDF und gib sie zurück
+                    with open(output_pdf_path, 'rb') as f:
+                        pdf_data = f.read()
+                    
+                    # Temporäre Dateien löschen
+                    if os.path.exists(output_pdf_path):
+                        os.unlink(output_pdf_path)
+                    
+                    return pdf_data  # Gib PDF-Daten zurück statt Text
+            
+            result = ocr_text_combined.strip() if ocr_text_combined.strip() else None
             if result:
                 print(f"OCR erfolgreich: {len(result)} Zeichen insgesamt")
             else:
