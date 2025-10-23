@@ -5,8 +5,37 @@ from .utils import require_api_key
 
 app = Flask(__name__)
 
-# Simple Swagger configuration
-swagger = Swagger(app)
+# Swagger configuration with security definitions
+swagger_config = {
+    "headers": [],
+    "specs": [
+        {
+            "endpoint": 'apispec_1',
+            "route": '/apispec_1.json',
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }
+    ],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/apidocs/",
+    "securityDefinitions": {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "API Key für Authentifizierung"
+        },
+        "BearerAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "Authorization",
+            "description": "Bearer Token für Authentifizierung (Format: Bearer <key>)"
+        }
+    }
+}
+
+swagger = Swagger(app, config=swagger_config)
 
 
 @app.route('/apidocs')
@@ -70,6 +99,9 @@ def ocr_endpoint():
           - OCR
         summary: Extract text from image
         description: Extrahiert Text aus einem hochgeladenen Bild mittels OCR
+        security:
+          - ApiKeyAuth: []
+          - BearerAuth: []
         parameters:
           - in: formData
             name: file
