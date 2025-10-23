@@ -1,10 +1,47 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 from flasgger import Swagger
 from .ocr import process_image
 from .utils import require_api_key
 
 app = Flask(__name__)
-swagger = Swagger(app)
+
+# Configure Swagger with proper settings
+swagger_config = {
+    "headers": [],
+    "specs": [
+        {
+            "endpoint": 'apispec_1',
+            "route": '/apispec_1.json',
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }
+    ],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/apidocs/"
+}
+
+swagger = Swagger(app, config=swagger_config)
+
+
+@app.route('/apidocs')
+def apidocs():
+    """Redirect to Swagger UI"""
+    return redirect('/apidocs/')
+
+
+@app.route('/')
+def root():
+    """Root endpoint with API information"""
+    return jsonify({
+        "message": "PDF to OCR API",
+        "version": "1.0.0",
+        "endpoints": {
+            "api_docs": "/apidocs/",
+            "ocr": "/api/ocr",
+            "health": "/health"
+        }
+    }), 200
 
 
 @app.route('/api/ocr', methods=['POST'])
