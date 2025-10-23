@@ -6,10 +6,6 @@ import io
 import os
 import tempfile
 import re
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
 def detect_language_from_text(text):
     """Erkennt die Sprache des Textes basierend auf charakteristischen Zeichen und Wörtern."""
@@ -90,15 +86,14 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
                 if i < len(extracted_texts) and extracted_texts[i]:
                     page_text = extracted_texts[i]
                     
-                    # Text als Annotation hinzufügen (unsichtbar, aber durchsuchbar)
+                    # Text als unsichtbare Annotation hinzufügen
                     try:
-                        # Erstelle eine unsichtbare Text-Annotation
                         from PyPDF2.generic import TextStringObject, DictionaryObject, ArrayObject, NameObject
                         
                         # Text-Objekt erstellen
                         text_obj = TextStringObject(page_text)
                         
-                        # Annotation erstellen
+                        # Annotation erstellen (unsichtbar)
                         annotation = DictionaryObject({
                             NameObject('/Type'): NameObject('/Annot'),
                             NameObject('/Subtype'): NameObject('/FreeText'),
