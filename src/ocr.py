@@ -67,83 +67,121 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path):
     """Erstellt eine neue PDF mit dem extrahierten Text als durchsuchbaren Text."""
     try:
         print(f"Erstelle PDF mit integriertem Text: {output_path}")
-        
-        # Alternative Lösung: Erstelle eine neue PDF mit dem Text als unsichtbaren Layer
+
         from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.colors import Color, colors
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.lib.colors import Color
         import tempfile
-        
-        # Erstelle eine temporäre PDF mit dem Text
-        temp_pdf_path = tempfile.mktemp(suffix='.pdf')
-        
-        # Originale PDF lesen
-        with open(original_pdf_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            
-            # Neue PDF erstellen
-            pdf_writer = PyPDF2.PdfWriter()
-            
-            # Für jede Seite
-            for i, page in enumerate(pdf_reader.pages):
-                print(f"Verarbeite Seite {i+1} für Textintegration...")
-                
-                # Text für diese Seite hinzufügen (falls vorhanden)
-                if i < len(extracted_texts) and extracted_texts[i]:
-                    page_text = extracted_texts[i]
-                    print(f"Integriere Text für Seite {i+1}: {len(page_text)} Zeichen")
-                    
-                    # Erstelle eine neue PDF-Seite mit dem Text als unsichtbaren Layer
-                    try:
-                        # Erstelle eine temporäre PDF mit dem Text
-                        temp_text_pdf = tempfile.mktemp(suffix='.pdf')
-                        
-                        # Erstelle eine PDF mit dem Text (unsichtbar)
-                        c = canvas.Canvas(temp_text_pdf, pagesize=letter)
-                        
-                        # Text als unsichtbaren Layer hinzufügen
-                        c.setFillColor(Color(1, 1, 1, 0))  # Transparent
-                        c.setFont("Helvetica", 1)  # Sehr kleine Schrift
-                        
-                        # Text in sehr kleinen Zeilen hinzufügen
-                        lines = page_text.split('\n')
-                        y = 10
-                        for line in lines:
-                            if line.strip():
-                                c.drawString(0, y, line)
-                                y += 1
-                        
-                        c.save()
-                        
-                        # Lade die Text-PDF
-                        text_pdf_reader = PyPDF2.PdfReader(temp_text_pdf)
-                        text_page = text_pdf_reader.pages[0]
-                        
-                        # Merge die Text-Seite mit der Original-Seite
-                        page.merge_page(text_page)
-                        
-                        # Aufräumen
-                        os.unlink(temp_text_pdf)
-                        
-                        print(f"Text für Seite {i+1} als unsichtbaren Layer integriert")
-                        
-                    except Exception as e:
-                        print(f"Fehler beim Hinzufügen von Text zu Seite {i+1}: {e}")
-                        import traceback
-                        traceback.print_exc()
-                
-                # Seite zur neuen PDF hinzufügen
-                pdf_writer.add_page(page)
-        
-        # Neue PDF speichern
-        with open(output_path, 'wb') as output_file:
-            pdf_writer.write(output_file)
-        
+
+        # Konvertiere PDF zu Bildern
+        images = pdf2image.convert_from_path(
+            original_pdf_path,
+            dpi=300,
+            fmt='jpeg',
+            thread_count=1
+        )
+
+        print(f"Anzahl Bilder: {len(images)}")
+
+        # Erstelle eine neue PDF mit ReportLab
+        c = canvas.Canvas(output_path, pagesize=A4)
+
+        # Für jede Seite
+        for i, image in enumerate(images):
+            print(f"Verarbeite Seite {i+1} für Textintegration...")
+
+            # Text für diese Seite hinzufügen (falls vorhanden)
+            page_text = ""
+            if i < len(extracted_texts) and extracted_texts[i]:
+                page_text = extracted_texts[i]
+                print(f"Integriere Text für Seite {i+1}: {len(page_text)} Zeichen")
+
+            # Neue Seite starten
+            if i > 0:
+                c.showPage()
+
+            # Bild als Hintergrund hinzufügen
+            temp_image_path = None
+            try:
+                # Speichere das PIL-Bild temporär
+                temp_image_path = tempfile.mktemp(suffix='.jpg')
+                image.save(temp_image_path, 'JPEG', quality=95)
+
+                # Bild zur PDF hinzufügen
+                c.drawImage(temp_image_path, 0, 0, width=A4[0], height=A4[1])
+
+            except Exception as e:
+                print(f"Fehler beim Hinzufügen des Bildes zu Seite {i+1}: {e}")
+                temp_image_path = None
+
+            # Text als durchsuchbaren Layer hinzufügen
+            if page_text.strip():
+                try:
+                    # Text unsichtbar machen (transparent) aber durchsuchbar
+                    c.setFillColor(Color(0, 0, 0, 0))  # Vollständig transparent
+                    c.setFont("Helvetica", 1)  # Sehr kleine Schrift
+
+                    # Text in mehreren Positionen hinzufügen für bessere Durchsuchbarkeit
+                    lines = page_text.split('\n')
+                    y_position = A4[1] - 10  # Start von oben
+
+                    for line in lines:
+                        line = line.strip()
+                        if line:  # Nur nicht-leere Zeilen
+                            # Text mehrmals an verschiedenen Positionen hinzufügen
+                            # Das erhöht die Chance, dass der Text durchsuchbar ist
+                            c.drawString(0, y_position, line)  # Links oben
+                            c.drawString(A4[0]/2, y_position, line)  # Mitte
+                            c.drawString(A4[0]-100, y_position, line)  # Rechts
+
+                            y_position -= 2  # Sehr enger Zeilenabstand
+
+                    # Zusätzlich: Text als sichtbaren Layer für Benutzerfreundlichkeit
+                    # (optional - kann auskommentiert werden)
+                    c.setFillColor(Color(1, 1, 1, 0.8))  # Halbtransparenter weißer Hintergrund
+                    c.setFont("Helvetica", 10)
+
+                    # Text-Box mit halbtransparentem Hintergrund
+                    text_box_height = min(200, len(lines) * 12 + 20)
+                    c.rect(40, A4[1] - text_box_height - 10, A4[0] - 80, text_box_height, fill=1, stroke=0)
+
+                    # Text sichtbar hinzufügen
+                    c.setFillColor(colors.black)
+                    y_position = A4[1] - 30
+                    for line in lines[:15]:  # Nur erste 15 Zeilen sichtbar
+                        line = line.strip()
+                        if line:
+                            c.drawString(50, y_position, line)
+                            y_position -= 12
+
+                            # Neue Seite wenn nötig
+                            if y_position < 50:
+                                c.showPage()
+                                if temp_image_path and os.path.exists(temp_image_path):
+                                    c.drawImage(temp_image_path, 0, 0, width=A4[0], height=A4[1])
+                                y_position = A4[1] - 30
+
+                    print(f"Text für Seite {i+1} als unsichtbaren und sichtbaren Layer hinzugefügt")
+
+                except Exception as e:
+                    print(f"Fehler beim Hinzufügen von Text zu Seite {i+1}: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+            # Temporäre Bild-Datei aufräumen
+            if temp_image_path and os.path.exists(temp_image_path):
+                try:
+                    os.unlink(temp_image_path)
+                except:
+                    pass
+
+        # PDF speichern
+        c.save()
         print(f"PDF mit integriertem Text erstellt: {output_path}")
         return True
-        
+
     except Exception as e:
         print(f"Fehler beim Erstellen der PDF mit Text: {e}")
         import traceback
