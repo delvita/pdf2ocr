@@ -47,46 +47,9 @@ def apidocs():
 @app.route('/')
 def root():
     """
-    Root endpoint with API information
-    ---
-    tags:
-      - General
-    summary: API Information
-    description: Gibt grundlegende Informationen über die API zurück
-    responses:
-      200:
-        description: API-Informationen erfolgreich abgerufen
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: "PDF to OCR API"
-            version:
-              type: string
-              example: "1.0.0"
-            endpoints:
-              type: object
-              properties:
-                api_docs:
-                  type: string
-                  example: "/apidocs/"
-                ocr:
-                  type: string
-                  example: "/api/ocr"
-                health:
-                  type: string
-                  example: "/health"
+    Root endpoint - gibt keine Informationen zurück
     """
-    return jsonify({
-        "message": "PDF to OCR API",
-        "version": "1.0.0",
-        "endpoints": {
-            "api_docs": "/apidocs/",
-            "ocr": "/api/ocr",
-            "health": "/health"
-        }
-    }), 200
+    return "", 404
 
 
 @app.route('/api/ocr', methods=['POST'])
