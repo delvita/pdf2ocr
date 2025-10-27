@@ -50,5 +50,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:5000/health || exit 1
 
-# Use Gunicorn for production-ready server
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "src.api:app"]
+# Use Gunicorn for production-ready server with custom config
+CMD ["gunicorn", "-c", "gunicorn_config.py", "src.api:app"]
