@@ -9,8 +9,9 @@ import re
 import inspect
 
 # Große Raster + 4 Sprachen lassen Tesseract sehr lange rechnen (wirkt wie „Hänger“ / Endlosschleife).
-OCR_MAX_DIMENSION = int(os.environ.get("OCR_MAX_DIMENSION", "2000"))
-TESSERACT_TIMEOUT = int(os.environ.get("TESSERACT_TIMEOUT", "0"))  # 0 = pytesseract-Default (kein Limit)
+OCR_MAX_DIMENSION = int(os.environ.get("OCR_MAX_DIMENSION", "1600"))
+# Harte Obergrenze pro Tesseract-Call, damit n8n-HTTP-Timeout nicht ins Leere läuft.
+TESSERACT_TIMEOUT = int(os.environ.get("TESSERACT_TIMEOUT", "90"))
 TESSERACT_CONFIG_FAST = os.environ.get("TESSERACT_CONFIG", "--oem 1 --psm 3")
 EXTENDED_LANGS = "deu+eng+fra+ita"
 PRIMARY_LANGS = "deu+eng"
@@ -44,8 +45,16 @@ def _image_to_string(image, lang, config=None):
     kw = _tesseract_call_kwargs()
     try:
         return pytesseract.image_to_string(image, lang=lang, config=cfg, **kw)
+    except RuntimeError as e:
+        # pytesseract wirft RuntimeError bei Timeout.
+        print(f"Tesseract-Timeout/RuntimeError (lang={lang}, config={cfg}): {e}")
+        return ""
     except TypeError:
-        return pytesseract.image_to_string(image, lang=lang, config=cfg)
+        try:
+            return pytesseract.image_to_string(image, lang=lang, config=cfg)
+        except RuntimeError as e:
+            print(f"Tesseract-Timeout/RuntimeError (lang={lang}, config={cfg}): {e}")
+            return ""
 
 
 def _image_to_data(image, lang, config=None):
@@ -55,10 +64,17 @@ def _image_to_data(image, lang, config=None):
         return pytesseract.image_to_data(
             image, lang=lang, config=cfg, output_type=pytesseract.Output.DICT, **kw
         )
+    except RuntimeError as e:
+        print(f"Tesseract-Timeout bei image_to_data (lang={lang}, config={cfg}): {e}")
+        return {"text": [], "left": [], "top": [], "width": [], "height": []}
     except TypeError:
-        return pytesseract.image_to_data(
-            image, lang=lang, config=cfg, output_type=pytesseract.Output.DICT
-        )
+        try:
+            return pytesseract.image_to_data(
+                image, lang=lang, config=cfg, output_type=pytesseract.Output.DICT
+            )
+        except RuntimeError as e:
+            print(f"Tesseract-Timeout bei image_to_data (lang={lang}, config={cfg}): {e}")
+            return {"text": [], "left": [], "top": [], "width": [], "height": []}
 
 def detect_language_from_text(text):
     """Erkennt die Sprache des Textes basierend auf charakteristischen Zeichen und Wörtern."""
@@ -347,17 +363,17 @@ def extract_text_with_language_detection(image_stream, initial_text=""):
         text = _image_to_string(ocr_image, lang=detected_lang)
         print(f"OCR-Ergebnis: {len(text)} Zeichen")
         
-        # Bei wenig Treffer: erweiterte Sprachen (nur wenn nicht schon alle aktiv)
-        if (not text.strip() or len(text.strip()) < 10) and detected_lang != EXTENDED_LANGS:
-            print("Wenig Text gefunden, versuche erweiterte Sprachen...")
-            text = _image_to_string(ocr_image, lang=EXTENDED_LANGS)
-            print(f"OCR mit erweiterten Sprachen: {len(text)} Zeichen")
-        
-        # Letzter Versuch: Block-Modus oft besser für Formulare/Scans
+        # Bei wenig Treffer: erst alternativer Segmentierungsmodus statt sofort 4 Sprachen
         if not text.strip() or len(text.strip()) < 10:
             print("Wenig Text, versuche PSM 6 (einheitlicher Textblock)...")
             text = _image_to_string(ocr_image, lang=PRIMARY_LANGS, config="--oem 1 --psm 6")
             print(f"OCR PSM 6: {len(text)} Zeichen")
+
+        # Erst danach erweiterte Sprachen (deutlich langsamer)
+        if (not text.strip() or len(text.strip()) < 10) and detected_lang != EXTENDED_LANGS:
+            print("Wenig Text gefunden, versuche erweiterte Sprachen...")
+            text = _image_to_string(ocr_image, lang=EXTENDED_LANGS)
+            print(f"OCR mit erweiterten Sprachen: {len(text)} Zeichen")
         
         result = text.strip() if text.strip() else None
         if result:
@@ -416,7 +432,7 @@ def extract_text_from_pdf(file_stream):
         try:
             # PDF zu Bildern konvertieren
             print("Konvertiere PDF zu Bildern...")
-            images = convert_from_path(temp_file_path, dpi=200)  # Optimiert für Performance (200 DPI)
+            images = convert_from_path(temp_file_path, dpi=150)  # Schneller, für OCR meist ausreichend
             print(f"PDF zu {len(images)} Bildern konvertiert")
             
             # OCR auf jedes Bild anwenden und Text pro Seite sammeln
