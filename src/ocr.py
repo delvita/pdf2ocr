@@ -6,6 +6,59 @@ import io
 import os
 import tempfile
 import re
+import inspect
+
+# Große Raster + 4 Sprachen lassen Tesseract sehr lange rechnen (wirkt wie „Hänger“ / Endlosschleife).
+OCR_MAX_DIMENSION = int(os.environ.get("OCR_MAX_DIMENSION", "2000"))
+TESSERACT_TIMEOUT = int(os.environ.get("TESSERACT_TIMEOUT", "0"))  # 0 = pytesseract-Default (kein Limit)
+TESSERACT_CONFIG_FAST = os.environ.get("TESSERACT_CONFIG", "--oem 1 --psm 3")
+EXTENDED_LANGS = "deu+eng+fra+ita"
+PRIMARY_LANGS = "deu+eng"
+
+
+def _prepare_image_for_ocr(image):
+    """Verkleinert große Seiten für schnellere OCR; Qualität bleibt für Drucksachen meist ausreichend."""
+    w, h = image.size
+    m = max(w, h)
+    if OCR_MAX_DIMENSION <= 0 or m <= OCR_MAX_DIMENSION:
+        return image
+    scale = OCR_MAX_DIMENSION / float(m)
+    nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+    return image.resize((nw, nh), Image.LANCZOS)
+
+
+def _tesseract_call_kwargs():
+    """timeout nur übergeben, wenn diese pytesseract-Version ihn unterstützt."""
+    if TESSERACT_TIMEOUT and TESSERACT_TIMEOUT > 0:
+        try:
+            sig = inspect.signature(pytesseract.image_to_string)
+            if "timeout" in sig.parameters:
+                return {"timeout": TESSERACT_TIMEOUT}
+        except (TypeError, ValueError):
+            pass
+    return {}
+
+
+def _image_to_string(image, lang, config=None):
+    cfg = config if config is not None else TESSERACT_CONFIG_FAST
+    kw = _tesseract_call_kwargs()
+    try:
+        return pytesseract.image_to_string(image, lang=lang, config=cfg, **kw)
+    except TypeError:
+        return pytesseract.image_to_string(image, lang=lang, config=cfg)
+
+
+def _image_to_data(image, lang, config=None):
+    cfg = config if config is not None else TESSERACT_CONFIG_FAST
+    kw = _tesseract_call_kwargs()
+    try:
+        return pytesseract.image_to_data(
+            image, lang=lang, config=cfg, output_type=pytesseract.Output.DICT, **kw
+        )
+    except TypeError:
+        return pytesseract.image_to_data(
+            image, lang=lang, config=cfg, output_type=pytesseract.Output.DICT
+        )
 
 def detect_language_from_text(text):
     """Erkennt die Sprache des Textes basierend auf charakteristischen Zeichen und Wörtern."""
@@ -52,9 +105,9 @@ def detect_language_from_text(text):
     # Finde die Sprache mit den meisten Indikatoren
     detected_lang = max(languages, key=languages.get)
     
-    # Wenn die Erkennung zu unsicher ist, verwende Mehrsprachen-Modus
+    # Wenn die Erkennung zu unsicher ist, zuerst schmal halten (schneller als 4 Sprachen)
     if languages[detected_lang] < 3:
-        return 'deu+eng+fra+ita'  # Alle verfügbaren Sprachen
+        return PRIMARY_LANGS
     
     # Kombiniere die zwei häufigsten Sprachen
     sorted_langs = sorted(languages.items(), key=lambda x: x[1], reverse=True)
@@ -159,47 +212,41 @@ def create_pdf_with_text(original_pdf_path, extracted_texts, output_path, images
             # Text als durchsuchbaren Layer hinzufügen mit OCR-Positionsdaten
             if page_text.strip():
                 try:
-                    # Führe OCR mit Positionsdaten durch
                     print(f"Extrahiere Positionsdaten für Seite {i+1}...")
                     import time
                     start_time = time.time()
-                    
-                    # Verwende pytesseract um Wort-Positionen zu erhalten
-                    import pytesseract
-                    from PIL import Image
-                    
-                    # Lade das Bild für OCR mit Positionsdaten
-                    print(f"Starte OCR für Seite {i+1}...")
-                    ocr_data = pytesseract.image_to_data(image, lang='deu+eng+fra+ita', output_type=pytesseract.Output.DICT)
+
+                    lang_pos = detect_language_from_text(page_text)
+                    ocr_small = _prepare_image_for_ocr(image)
+                    sx_ocr = image.size[0] / float(ocr_small.size[0])
+                    sy_ocr = image.size[1] / float(ocr_small.size[1])
+
+                    print(f"Starte OCR für Seite {i+1} (Positionsdaten, lang={lang_pos})...")
+                    ocr_data = _image_to_data(ocr_small, lang=lang_pos)
                     print(f"OCR für Seite {i+1} abgeschlossen in {time.time() - start_time:.2f}s")
-                    
-                    # Skalierungsfaktor berechnen (Bild zu PDF)
+
                     image_width, image_height = image.size
                     scale_x = A4[0] / image_width
                     scale_y = A4[1] / image_height
-                    
+
                     print(f"Bild: {image_width}x{image_height}, PDF: {A4[0]}x{A4[1]}, Scale: {scale_x:.3f}x{scale_y:.3f}")
-                    
-                    # Text unsichtbar machen (transparent) aber durchsuchbar
-                    c.setFillColorRGB(0, 0, 0, 0)  # Vollständig transparent
-                    c.setStrokeColorRGB(0, 0, 0, 0)  # Keine Umrandung
-                    
-                    # Gehe durch alle erkannten Wörter und platziere sie an der richtigen Position
+
+                    c.setFillColorRGB(0, 0, 0, 0)
+                    c.setStrokeColorRGB(0, 0, 0, 0)
+
                     n_boxes = len(ocr_data['text'])
                     words_added = 0
-                    
+
                     for j in range(n_boxes):
                         text = ocr_data['text'][j].strip()
-                        if text:  # Nur nicht-leere Wörter
-                            # Position und Größe aus OCR-Daten
-                            x = ocr_data['left'][j]
-                            y = ocr_data['top'][j]
-                            w = ocr_data['width'][j]
-                            h = ocr_data['height'][j]
-                            
-                            # Skaliere auf PDF-Koordinaten
+                        if text:
+                            x = ocr_data['left'][j] * sx_ocr
+                            y = ocr_data['top'][j] * sy_ocr
+                            w = ocr_data['width'][j] * sx_ocr
+                            h = ocr_data['height'][j] * sy_ocr
+
                             pdf_x = x * scale_x
-                            pdf_y = A4[1] - (y * scale_y) - (h * scale_y)  # PDF-Y ist von unten
+                            pdf_y = A4[1] - (y * scale_y) - (h * scale_y)
                             pdf_h = h * scale_y
                             
                             # Berechne Schriftgröße basierend auf Höhe
@@ -284,26 +331,33 @@ def extract_text_with_language_detection(image_stream, initial_text=""):
         # Bild aus Stream öffnen
         image = Image.open(image_stream)
         print(f"Bild geladen: {image.size[0]}x{image.size[1]} Pixel")
+        ocr_image = _prepare_image_for_ocr(image)
+        if ocr_image.size != image.size:
+            print(f"OCR mit reduzierter Auflösung: {ocr_image.size[0]}x{ocr_image.size[1]} Pixel (max {OCR_MAX_DIMENSION})")
         
         # Wenn bereits Text vorhanden ist, verwende ihn für Spracherkennung
         if initial_text:
             detected_lang = detect_language_from_text(initial_text)
             print(f"Sprache erkannt: {detected_lang}")
         else:
-            # Erst mit Standard-Sprachen versuchen
-            detected_lang = 'deu+eng+fra+ita'
-            print(f"Verwende Standard-Sprachen: {detected_lang}")
+            detected_lang = PRIMARY_LANGS
+            print(f"Erster OCR-Lauf (schnell): {detected_lang}")
         
-        # OCR mit erkannten Sprachen
         print(f"Führe OCR durch mit Sprachen: {detected_lang}")
-        text = pytesseract.image_to_string(image, lang=detected_lang)
+        text = _image_to_string(ocr_image, lang=detected_lang)
         print(f"OCR-Ergebnis: {len(text)} Zeichen")
         
-        # Falls wenig Text gefunden wurde, mit allen Sprachen erneut versuchen
+        # Bei wenig Treffer: erweiterte Sprachen (nur wenn nicht schon alle aktiv)
+        if (not text.strip() or len(text.strip()) < 10) and detected_lang != EXTENDED_LANGS:
+            print("Wenig Text gefunden, versuche erweiterte Sprachen...")
+            text = _image_to_string(ocr_image, lang=EXTENDED_LANGS)
+            print(f"OCR mit erweiterten Sprachen: {len(text)} Zeichen")
+        
+        # Letzter Versuch: Block-Modus oft besser für Formulare/Scans
         if not text.strip() or len(text.strip()) < 10:
-            print("Wenig Text gefunden, versuche mit allen Sprachen...")
-            text = pytesseract.image_to_string(image, lang='deu+eng+fra+ita')
-            print(f"OCR mit allen Sprachen: {len(text)} Zeichen")
+            print("Wenig Text, versuche PSM 6 (einheitlicher Textblock)...")
+            text = _image_to_string(ocr_image, lang=PRIMARY_LANGS, config="--oem 1 --psm 6")
+            print(f"OCR PSM 6: {len(text)} Zeichen")
         
         result = text.strip() if text.strip() else None
         if result:
