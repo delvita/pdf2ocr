@@ -1,4 +1,5 @@
 # gunicorn_config.py
+import os
 
 # Server socket
 bind = "0.0.0.0:5000"
@@ -10,9 +11,12 @@ worker_class = "sync"  # Für CPU-intensive Tasks wie OCR
 worker_connections = 1000
 
 # Worker timeout (in seconds)
-# Wichtig: OCR-Verarbeitung kann lange dauern (PDF zu Bild, OCR pro Seite, PDF-Erstellung)
-timeout = 900  # 15 Minuten
-graceful_timeout = 900  # Wartezeit beim Shutdown
+# Wichtig: OCR-Verarbeitung kann lange dauern (PDF zu Bild, OCR pro Seite, PDF-Erstellung).
+# Ohne diese Werte nutzt Gunicorn standardmäßig 30s → WORKER TIMEOUT bei langer OCR.
+# Per Umgebung überschreibbar (z. B. Coolify / docker-compose).
+_default_timeout = int(os.environ.get("GUNICORN_TIMEOUT", "900"))
+timeout = _default_timeout
+graceful_timeout = int(os.environ.get("GUNICORN_GRACEFUL_TIMEOUT", str(_default_timeout)))
 keepalive = 2  # Zeit, die Keep-Alive-Verbindungen aufrechterhalten werden
 
 # Restart workers nach N Requests (um Memory Leaks zu vermeiden)

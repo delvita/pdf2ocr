@@ -10,6 +10,8 @@ services:
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
+      - GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-900}
+      - GUNICORN_GRACEFUL_TIMEOUT=${GUNICORN_GRACEFUL_TIMEOUT:-900}
       # Optional: set an API key to protect the webhook. If unset, no API key is required.
       - API_KEY=${API_KEY:-}
     restart: unless-stopped

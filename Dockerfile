@@ -44,11 +44,15 @@ RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser 
 USER appuser
 
 ENV PYTHONUNBUFFERED=1
+# Defaults für lange OCR-Läufe (n8n/Reverse-Proxy separat anpassen)
+ENV GUNICORN_TIMEOUT=900
+ENV GUNICORN_GRACEFUL_TIMEOUT=900
 EXPOSE 5000
 
 # Add healthcheck directly in Dockerfile for Coolify compatibility
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:5000/health || exit 1
 
-# Use Gunicorn for production-ready server with custom config
-CMD ["gunicorn", "-c", "gunicorn_config.py", "src.api:app"]
+# Absoluter Config-Pfad + explizite Timeouts (CLI), damit kein stiller 30s-Default greift,
+# falls CWD/Startkommando von gunicorn_config.py abweicht. Werte per ENV anpassbar.
+CMD ["sh", "-c", "exec gunicorn -c /app/gunicorn_config.py --timeout \"${GUNICORN_TIMEOUT:-900}\" --graceful-timeout \"${GUNICORN_GRACEFUL_TIMEOUT:-900}\" src.api:app"]
