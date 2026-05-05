@@ -7,6 +7,7 @@ import os
 import tempfile
 import re
 import inspect
+import time
 
 # Große Raster + 4 Sprachen lassen Tesseract sehr lange rechnen (wirkt wie „Hänger“ / Endlosschleife).
 OCR_MAX_DIMENSION = int(os.environ.get("OCR_MAX_DIMENSION", "1600"))
@@ -15,6 +16,8 @@ TESSERACT_TIMEOUT = int(os.environ.get("TESSERACT_TIMEOUT", "90"))
 TESSERACT_CONFIG_FAST = os.environ.get("TESSERACT_CONFIG", "--oem 1 --psm 3")
 EXTENDED_LANGS = "deu+eng+fra+ita"
 PRIMARY_LANGS = "deu+eng"
+OCR_LOG_TESSERACT_INFO = os.environ.get("OCR_LOG_TESSERACT_INFO", "1").lower() in ("1", "true", "yes", "on")
+_TESSERACT_INFO_LOGGED = False
 
 
 def _prepare_image_for_ocr(image):
@@ -26,6 +29,36 @@ def _prepare_image_for_ocr(image):
     scale = OCR_MAX_DIMENSION / float(m)
     nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
     return image.resize((nw, nh), Image.LANCZOS)
+
+
+def _ocr_log(stage, **fields):
+    payload = " ".join(f"{k}={fields[k]}" for k in sorted(fields.keys()))
+    print(f"[OCR] stage={stage} {payload}".strip())
+
+
+def _log_tesseract_runtime_info_once():
+    global _TESSERACT_INFO_LOGGED
+    if _TESSERACT_INFO_LOGGED or not OCR_LOG_TESSERACT_INFO:
+        return
+    _TESSERACT_INFO_LOGGED = True
+    try:
+        version = str(pytesseract.get_tesseract_version()).replace("\n", " ")
+        _ocr_log("tesseract_version", value=version)
+    except Exception as e:
+        _ocr_log("tesseract_version_error", error_type=type(e).__name__, message=str(e))
+
+    try:
+        langs = pytesseract.get_languages(config="")
+        _ocr_log("tesseract_languages", count=len(langs), value=",".join(langs))
+    except Exception as e:
+        _ocr_log("tesseract_languages_error", error_type=type(e).__name__, message=str(e))
+
+    _ocr_log(
+        "tesseract_env",
+        timeout=TESSERACT_TIMEOUT,
+        max_dim=OCR_MAX_DIMENSION,
+        tessdata_prefix=os.environ.get("TESSDATA_PREFIX", "<unset>"),
+    )
 
 
 def _tesseract_call_kwargs():
@@ -43,37 +76,106 @@ def _tesseract_call_kwargs():
 def _image_to_string(image, lang, config=None):
     cfg = config if config is not None else TESSERACT_CONFIG_FAST
     kw = _tesseract_call_kwargs()
+    _log_tesseract_runtime_info_once()
+    started = time.time()
+    _ocr_log("ocr_attempt_start", op="image_to_string", lang=lang, config=cfg, width=image.size[0], height=image.size[1])
     try:
-        return pytesseract.image_to_string(image, lang=lang, config=cfg, **kw)
+        result = pytesseract.image_to_string(image, lang=lang, config=cfg, **kw)
+        _ocr_log(
+            "ocr_attempt_success",
+            op="image_to_string",
+            lang=lang,
+            elapsed_s=f"{time.time() - started:.2f}",
+            chars=len(result.strip()) if result else 0,
+        )
+        return result
     except RuntimeError as e:
-        # pytesseract wirft RuntimeError bei Timeout.
-        print(f"Tesseract-Timeout/RuntimeError (lang={lang}, config={cfg}): {e}")
+        _ocr_log(
+            "ocr_attempt_error",
+            op="image_to_string",
+            lang=lang,
+            elapsed_s=f"{time.time() - started:.2f}",
+            error_type=type(e).__name__,
+            message=str(e),
+        )
         return ""
     except TypeError:
         try:
-            return pytesseract.image_to_string(image, lang=lang, config=cfg)
+            result = pytesseract.image_to_string(image, lang=lang, config=cfg)
+            _ocr_log(
+                "ocr_attempt_success",
+                op="image_to_string",
+                lang=lang,
+                elapsed_s=f"{time.time() - started:.2f}",
+                chars=len(result.strip()) if result else 0,
+                note="fallback_without_timeout_kw",
+            )
+            return result
         except RuntimeError as e:
-            print(f"Tesseract-Timeout/RuntimeError (lang={lang}, config={cfg}): {e}")
+            _ocr_log(
+                "ocr_attempt_error",
+                op="image_to_string",
+                lang=lang,
+                elapsed_s=f"{time.time() - started:.2f}",
+                error_type=type(e).__name__,
+                message=str(e),
+                note="fallback_without_timeout_kw",
+            )
             return ""
 
 
 def _image_to_data(image, lang, config=None):
     cfg = config if config is not None else TESSERACT_CONFIG_FAST
     kw = _tesseract_call_kwargs()
+    _log_tesseract_runtime_info_once()
+    started = time.time()
+    _ocr_log("ocr_attempt_start", op="image_to_data", lang=lang, config=cfg, width=image.size[0], height=image.size[1])
     try:
-        return pytesseract.image_to_data(
+        result = pytesseract.image_to_data(
             image, lang=lang, config=cfg, output_type=pytesseract.Output.DICT, **kw
         )
+        _ocr_log(
+            "ocr_attempt_success",
+            op="image_to_data",
+            lang=lang,
+            elapsed_s=f"{time.time() - started:.2f}",
+            words=len(result.get("text", [])),
+        )
+        return result
     except RuntimeError as e:
-        print(f"Tesseract-Timeout bei image_to_data (lang={lang}, config={cfg}): {e}")
+        _ocr_log(
+            "ocr_attempt_error",
+            op="image_to_data",
+            lang=lang,
+            elapsed_s=f"{time.time() - started:.2f}",
+            error_type=type(e).__name__,
+            message=str(e),
+        )
         return {"text": [], "left": [], "top": [], "width": [], "height": []}
     except TypeError:
         try:
-            return pytesseract.image_to_data(
+            result = pytesseract.image_to_data(
                 image, lang=lang, config=cfg, output_type=pytesseract.Output.DICT
             )
+            _ocr_log(
+                "ocr_attempt_success",
+                op="image_to_data",
+                lang=lang,
+                elapsed_s=f"{time.time() - started:.2f}",
+                words=len(result.get("text", [])),
+                note="fallback_without_timeout_kw",
+            )
+            return result
         except RuntimeError as e:
-            print(f"Tesseract-Timeout bei image_to_data (lang={lang}, config={cfg}): {e}")
+            _ocr_log(
+                "ocr_attempt_error",
+                op="image_to_data",
+                lang=lang,
+                elapsed_s=f"{time.time() - started:.2f}",
+                error_type=type(e).__name__,
+                message=str(e),
+                note="fallback_without_timeout_kw",
+            )
             return {"text": [], "left": [], "top": [], "width": [], "height": []}
 
 def detect_language_from_text(text):
@@ -343,13 +445,16 @@ def extract_text_with_language_detection(image_stream, initial_text=""):
     """Extrahiert Text mit automatischer Spracherkennung."""
     try:
         print(f"OCR-Verarbeitung gestartet...")
+        started_total = time.time()
         
         # Bild aus Stream öffnen
         image = Image.open(image_stream)
         print(f"Bild geladen: {image.size[0]}x{image.size[1]} Pixel")
+        _ocr_log("page_ocr_input", width=image.size[0], height=image.size[1], has_initial_text=1 if bool(initial_text) else 0)
         ocr_image = _prepare_image_for_ocr(image)
         if ocr_image.size != image.size:
             print(f"OCR mit reduzierter Auflösung: {ocr_image.size[0]}x{ocr_image.size[1]} Pixel (max {OCR_MAX_DIMENSION})")
+            _ocr_log("page_ocr_resized", width=ocr_image.size[0], height=ocr_image.size[1], max_dim=OCR_MAX_DIMENSION)
         
         # Wenn bereits Text vorhanden ist, verwende ihn für Spracherkennung
         if initial_text:
@@ -378,13 +483,16 @@ def extract_text_with_language_detection(image_stream, initial_text=""):
         result = text.strip() if text.strip() else None
         if result:
             print(f"OCR erfolgreich: {len(result)} Zeichen extrahiert")
+            _ocr_log("page_ocr_result", status="success", chars=len(result), elapsed_s=f"{time.time() - started_total:.2f}")
         else:
             print("OCR: Kein Text gefunden")
+            _ocr_log("page_ocr_result", status="empty", chars=0, elapsed_s=f"{time.time() - started_total:.2f}")
         
         return result
         
     except Exception as e:
         print(f"Fehler beim Verarbeiten des Bildes: {e}")
+        _ocr_log("page_ocr_result", status="exception", error_type=type(e).__name__, message=str(e))
         import traceback
         traceback.print_exc()
         return None
@@ -441,6 +549,7 @@ def extract_text_from_pdf(file_stream):
             
             for i, image in enumerate(images):
                 print(f"Verarbeite Bild {i+1}/{len(images)}...")
+                _ocr_log("pdf_page_start", page=i + 1, total_pages=len(images), width=image.size[0], height=image.size[1])
                 # Verwende bereits extrahierten Text für Spracherkennung
                 initial_text = text if i == 0 else ""
                 
@@ -455,9 +564,11 @@ def extract_text_from_pdf(file_stream):
                     ocr_texts.append(page_text.strip())
                     ocr_text_combined += f"--- Seite {i+1} ---\n{page_text.strip()}\n\n"
                     print(f"Seite {i+1}: {len(page_text)} Zeichen durch OCR extrahiert")
+                    _ocr_log("pdf_page_result", page=i + 1, status="success", chars=len(page_text.strip()))
                 else:
                     ocr_texts.append("")
                     print(f"Seite {i+1}: Kein Text durch OCR gefunden")
+                    _ocr_log("pdf_page_result", page=i + 1, status="empty", chars=0)
             
             # Erstelle PDF mit integriertem Text
             print(f"DEBUG: OCR-Texte vorhanden: {any(ocr_texts)}")
