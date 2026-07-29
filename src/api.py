@@ -156,7 +156,7 @@ def ocr_endpoint():
                     result = OcrResult(
                         text="",
                         pdf_bytes=result,
-                        file_name=file.filename.replace(".pdf", "_with_text.pdf"),
+                        file_name=file.filename,
                     )
                 elif isinstance(result, str):
                     result = OcrResult(text=result, file_name=file.filename)

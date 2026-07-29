@@ -31,45 +31,12 @@ class OcrResult:
 
 
 def suggest_filename(text: str, original_filename: str) -> str:
-    """Leitet aus OCR-Text einen sinnvollen Dateinamen ab (für Google Drive / n8n)."""
-    original = original_filename or "document.pdf"
-    stem, ext = os.path.splitext(original)
-    ext = ext.lower() if ext else ".pdf"
-    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"):
-        ext = ".pdf"
+    """Gibt in Stufe 1 den Originalnamen zurück (keine Umbenennung → keine Drive-Konflikte).
 
-    candidate = None
-    raw = (text or "").strip()
-    if raw:
-        patterns = [
-            r"(?:Rechnung|Invoice|Beleg|Quittung|Faktura)[\s\-_:#]*([A-Z0-9][A-Z0-9\-/]{2,})",
-            r"(?:Auftrags?|Bestell(?:ung)?|Order)[\s\-_:#nrNr\.]*([A-Z0-9][A-Z0-9\-/]{2,})",
-            r"(?:Nr\.?|No\.?|Number)[\s\-_:#]*([A-Z0-9][A-Z0-9\-/]{2,})",
-            r"\b(\d{2}[.\-/]\d{2}[.\-/]\d{4})\b",
-            r"\b(\d{4}[.\-/]\d{2}[.\-/]\d{2})\b",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, raw, re.IGNORECASE)
-            if match:
-                candidate = match.group(0)
-                break
-
-        if not candidate:
-            for line in raw.splitlines():
-                line = line.strip()
-                if len(line) >= 4 and not line.startswith("---"):
-                    candidate = line
-                    break
-
-    if not candidate:
-        candidate = f"{stem}_ocr" if stem else "document_ocr"
-
-    cleaned = re.sub(r"[^\w\- .]+", "", candidate, flags=re.UNICODE)
-    cleaned = re.sub(r"\s+", "_", cleaned).strip("._-")
-    cleaned = cleaned[:80] or (stem or "document_ocr")
-    if not cleaned.lower().endswith(ext):
-        cleaned = f"{cleaned}{ext}"
-    return cleaned
+    text bleibt für eine spätere Stufe verfügbar; wird hier bewusst nicht genutzt.
+    """
+    _ = text  # reserviert für spätere Dateinamenfindung aus OCR
+    return original_filename or "document.pdf"
 
 
 def _prepare_image_for_ocr(image):
