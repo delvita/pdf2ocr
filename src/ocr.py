@@ -8,6 +8,8 @@ import tempfile
 import re
 import inspect
 import time
+from dataclasses import dataclass
+from typing import Optional
 
 # Große Raster + 4 Sprachen lassen Tesseract sehr lange rechnen (wirkt wie „Hänger“ / Endlosschleife).
 OCR_MAX_DIMENSION = int(os.environ.get("OCR_MAX_DIMENSION", "1600"))
@@ -18,6 +20,56 @@ EXTENDED_LANGS = "deu+eng+fra+ita"
 PRIMARY_LANGS = "deu+eng"
 OCR_LOG_TESSERACT_INFO = os.environ.get("OCR_LOG_TESSERACT_INFO", "1").lower() in ("1", "true", "yes", "on")
 _TESSERACT_INFO_LOGGED = False
+
+
+@dataclass
+class OcrResult:
+    """Ergebnis für API/n8n: Text, optional PDF-Bytes und vorgeschlagener Dateiname."""
+    text: str
+    pdf_bytes: Optional[bytes] = None
+    file_name: Optional[str] = None
+
+
+def suggest_filename(text: str, original_filename: str) -> str:
+    """Leitet aus OCR-Text einen sinnvollen Dateinamen ab (für Google Drive / n8n)."""
+    original = original_filename or "document.pdf"
+    stem, ext = os.path.splitext(original)
+    ext = ext.lower() if ext else ".pdf"
+    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"):
+        ext = ".pdf"
+
+    candidate = None
+    raw = (text or "").strip()
+    if raw:
+        patterns = [
+            r"(?:Rechnung|Invoice|Beleg|Quittung|Faktura)[\s\-_:#]*([A-Z0-9][A-Z0-9\-/]{2,})",
+            r"(?:Auftrags?|Bestell(?:ung)?|Order)[\s\-_:#nrNr\.]*([A-Z0-9][A-Z0-9\-/]{2,})",
+            r"(?:Nr\.?|No\.?|Number)[\s\-_:#]*([A-Z0-9][A-Z0-9\-/]{2,})",
+            r"\b(\d{2}[.\-/]\d{2}[.\-/]\d{4})\b",
+            r"\b(\d{4}[.\-/]\d{2}[.\-/]\d{2})\b",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, raw, re.IGNORECASE)
+            if match:
+                candidate = match.group(0)
+                break
+
+        if not candidate:
+            for line in raw.splitlines():
+                line = line.strip()
+                if len(line) >= 4 and not line.startswith("---"):
+                    candidate = line
+                    break
+
+    if not candidate:
+        candidate = f"{stem}_ocr" if stem else "document_ocr"
+
+    cleaned = re.sub(r"[^\w\- .]+", "", candidate, flags=re.UNICODE)
+    cleaned = re.sub(r"\s+", "_", cleaned).strip("._-")
+    cleaned = cleaned[:80] or (stem or "document_ocr")
+    if not cleaned.lower().endswith(ext):
+        cleaned = f"{cleaned}{ext}"
+    return cleaned
 
 
 def _prepare_image_for_ocr(image):
@@ -497,8 +549,8 @@ def extract_text_with_language_detection(image_stream, initial_text=""):
         traceback.print_exc()
         return None
 
-def extract_text_from_pdf(file_stream):
-    """Extrahiert Text aus einer PDF-Datei."""
+def extract_text_from_pdf(file_stream, original_filename="document.pdf"):
+    """Extrahiert Text aus einer PDF und liefert immer PDF-Bytes für n8n (application/pdf)."""
     try:
         print(f"PDF-Verarbeitung gestartet...")
         
@@ -520,10 +572,13 @@ def extract_text_from_pdf(file_stream):
             except Exception as e:
                 print(f"Fehler bei Seite {i+1}: {e}")
         
-        # Wenn Text gefunden wurde, zurückgeben
+        # PDF mit bereits vorhandenem Text: Original-Bytes zurückgeben (kein JSON-Fallback)
         if text.strip():
             print(f"Direkte PDF-Extraktion erfolgreich: {len(text)} Zeichen")
-            return text.strip()
+            file_stream.seek(0)
+            pdf_bytes = file_stream.read()
+            file_name = suggest_filename(text.strip(), original_filename)
+            return OcrResult(text=text.strip(), pdf_bytes=pdf_bytes, file_name=file_name)
         
         print("Kein Text durch direkte Extraktion gefunden, versuche OCR...")
         
@@ -570,6 +625,9 @@ def extract_text_from_pdf(file_stream):
                     print(f"Seite {i+1}: Kein Text durch OCR gefunden")
                     _ocr_log("pdf_page_result", page=i + 1, status="empty", chars=0)
             
+            combined_text = ocr_text_combined.strip()
+            file_name = suggest_filename(combined_text, original_filename)
+
             # Erstelle PDF mit integriertem Text
             print(f"DEBUG: OCR-Texte vorhanden: {any(ocr_texts)}")
             print(f"DEBUG: Anzahl OCR-Texte: {len(ocr_texts)}")
@@ -582,24 +640,27 @@ def extract_text_from_pdf(file_stream):
                 
                 if success:
                     print(f"PDF mit integriertem Text erstellt: {output_pdf_path}")
-                    # Lese die neue PDF und gib sie zurück
                     with open(output_pdf_path, 'rb') as f:
                         pdf_data = f.read()
                     
-                    # Temporäre Dateien löschen
                     if os.path.exists(output_pdf_path):
                         os.unlink(output_pdf_path)
                     
-                    return pdf_data  # Gib PDF-Daten zurück statt Text
+                    return OcrResult(
+                        text=combined_text or "Kein Text gefunden.",
+                        pdf_bytes=pdf_data,
+                        file_name=file_name,
+                    )
             
-            # Fallback: Wenn keine PDF erstellt werden konnte, gib Text zurück
-            result = ocr_text_combined.strip() if ocr_text_combined.strip() else None
-            if result:
-                print(f"OCR erfolgreich: {len(result)} Zeichen insgesamt")
-            else:
-                print("OCR: Kein Text gefunden")
-            
-            return result
+            # Fallback: Original-PDF zurückgeben, damit n8n weiterhin application/pdf erhält
+            print("OCR-PDF konnte nicht erzeugt werden – gebe Original-PDF zurück")
+            with open(temp_file_path, 'rb') as f:
+                original_pdf = f.read()
+            return OcrResult(
+                text=combined_text or "Kein Text gefunden.",
+                pdf_bytes=original_pdf,
+                file_name=file_name,
+            )
             
         finally:
             # Temporäre Datei löschen
@@ -618,7 +679,7 @@ def extract_text_from_image(image_stream):
     return extract_text_with_language_detection(image_stream)
 
 def process_file(file_stream, filename):
-    """Verarbeitet eine Datei (Bild oder PDF) und gibt den extrahierten Text zurück."""
+    """Verarbeitet Bild/PDF und liefert OcrResult (PDF-Bytes + fileName für n8n)."""
     print(f"Verarbeite Datei: {filename}")
     
     # Dateierweiterung ermitteln
@@ -627,20 +688,27 @@ def process_file(file_stream, filename):
     
     if file_extension == 'pdf':
         print("Verarbeite als PDF...")
-        # PDF verarbeiten
-        text = extract_text_from_pdf(file_stream)
-    elif file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+        result = extract_text_from_pdf(file_stream, original_filename=filename)
+        if result is None:
+            return OcrResult(
+                text="Kein Text gefunden.",
+                file_name=suggest_filename("", filename),
+            )
+        return result
+
+    if file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
         print("Verarbeite als Bild...")
-        # Bild verarbeiten
         text = extract_text_from_image(file_stream)
-    else:
-        error_msg = f"Unterstütztes Dateiformat nicht erkannt. Unterstützte Formate: PDF, PNG, JPG, JPEG, GIF, BMP, TIFF"
-        print(error_msg)
-        return error_msg
-    
-    if text:
-        print(f"Text erfolgreich extrahiert: {len(text)} Zeichen")
-        return text
-    
-    print("Kein Text gefunden.")
-    return "Kein Text gefunden."
+        resolved = text.strip() if text and text.strip() else "Kein Text gefunden."
+        print(f"Text erfolgreich extrahiert: {len(resolved)} Zeichen")
+        return OcrResult(
+            text=resolved,
+            file_name=suggest_filename(resolved if resolved != "Kein Text gefunden." else "", filename),
+        )
+
+    error_msg = (
+        "Unterstütztes Dateiformat nicht erkannt. "
+        "Unterstützte Formate: PDF, PNG, JPG, JPEG, GIF, BMP, TIFF"
+    )
+    print(error_msg)
+    return OcrResult(text=error_msg, file_name=suggest_filename("", filename or "document.pdf"))

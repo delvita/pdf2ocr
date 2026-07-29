@@ -1,6 +1,6 @@
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify, redirect, Response
 from flasgger import Swagger
-from .ocr import process_file
+from .ocr import process_file, OcrResult
 from .utils import require_api_key
 
 app = Flask(__name__)
@@ -77,6 +77,10 @@ def ocr_endpoint():
           - Erkennt automatisch Deutsch, Englisch, Französisch und Italienisch
           - Optimiert OCR-Genauigkeit basierend auf erkannten Sprachen
           - Fallback auf Mehrsprachen-Modus bei unsicherer Erkennung
+
+          **n8n-Kompatibilität:**
+          - PDF-Uploads liefern immer `Content-Type: application/pdf`
+          - Vorgeschlagener Dateiname in Header `fileName` und JSON-Feld `fileName` (bei Bildern)
         security:
           - ApiKeyAuth: []
           - BearerAuth: []
@@ -99,6 +103,11 @@ def ocr_endpoint():
                     text:
                       type: string
                       example: "Dies ist der extrahierte Text aus der Datei."
+                    fileName:
+                      type: string
+                      example: "Rechnung_12345.pdf"
+                    success:
+                      type: boolean
                 description: "Für Bilddateien - extrahierter Text"
               application/pdf:
                 schema:
@@ -131,38 +140,58 @@ def ocr_endpoint():
                   example: "OCR processing failed"
         """
         if 'file' not in request.files:
-                return jsonify({'error': 'No file part'}), 400
+                return jsonify({'error': 'No file part', 'success': False}), 400
 
         file = request.files['file']
     
         if file.filename == '':
-                return jsonify({'error': 'No selected file'}), 400
+                return jsonify({'error': 'No selected file', 'success': False}), 400
 
         try:
                 print(f"API: Verarbeite Datei {file.filename}")
                 result = process_file(file.stream, file.filename)
-                
-                # Prüfe ob Ergebnis PDF-Daten oder Text ist
+
+                # Abwärtskompatibilität falls noch rohe bytes/str zurückkommen
                 if isinstance(result, bytes):
-                    print(f"API: PDF mit integriertem Text erstellt: {len(result)} Bytes")
-                    # Gib PDF-Datei zurück
-                    from flask import Response
+                    result = OcrResult(
+                        text="",
+                        pdf_bytes=result,
+                        file_name=file.filename.replace(".pdf", "_with_text.pdf"),
+                    )
+                elif isinstance(result, str):
+                    result = OcrResult(text=result, file_name=file.filename)
+                elif not isinstance(result, OcrResult):
+                    return jsonify({'error': 'Unexpected OCR result', 'success': False}), 500
+
+                file_name = result.file_name or file.filename
+
+                # PDF-Pfad: immer application/pdf + fileName-Header für n8n IF/Google Drive
+                if result.pdf_bytes:
+                    print(f"API: PDF-Antwort: {len(result.pdf_bytes)} Bytes, fileName={file_name}")
                     return Response(
-                        result,
+                        result.pdf_bytes,
                         mimetype='application/pdf',
                         headers={
-                            'Content-Disposition': f'attachment; filename="{file.filename.replace(".pdf", "_with_text.pdf")}"',
-                            'fileName': file.filename.replace(".pdf", "_with_text.pdf")
+                            'Content-Type': 'application/pdf',
+                            'Content-Disposition': f'attachment; filename="{file_name}"',
+                            'fileName': file_name,
+                            'X-File-Name': file_name,
+                            'X-OCR-Text-Length': str(len(result.text or "")),
+                            'Access-Control-Expose-Headers': 'fileName, X-File-Name, Content-Disposition, Content-Type',
                         }
                     )
-                else:
-                    print(f"API: Text-Ergebnis: {len(result) if result else 0} Zeichen")
-                    return jsonify({'text': result}), 200
+
+                print(f"API: Text-Ergebnis: {len(result.text) if result.text else 0} Zeichen, fileName={file_name}")
+                return jsonify({
+                    'success': True,
+                    'text': result.text,
+                    'fileName': file_name,
+                }), 200
         except Exception as e:
                 print(f"API: Fehler: {e}")
                 import traceback
                 traceback.print_exc()
-                return jsonify({'error': str(e)}), 500
+                return jsonify({'error': str(e), 'success': False}), 500
 
 
 @app.route('/health', methods=['GET'])

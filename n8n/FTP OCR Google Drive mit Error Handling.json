@@ -1,0 +1,574 @@
+{
+  "name": "FTP OCR Google Drive mit Error Handling",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        -96,
+        400
+      ],
+      "id": "be0eef19-0050-4cc7-ab6f-9c411a43b8da",
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "path": "/OCR/",
+        "options": {}
+      },
+      "name": "FTP List Files",
+      "type": "n8n-nodes-base.ftp",
+      "position": [
+        128,
+        400
+      ],
+      "id": "08c1b966-e05f-494b-a6d0-c10031300e51",
+      "typeVersion": 1,
+      "credentials": {
+        "ftp": {
+          "id": "9pAPbpYFLdJhTgfL",
+          "name": "FTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        352,
+        400
+      ],
+      "id": "1a7f8ed3-a01b-439e-9667-d21d98ce80cd",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0ba1f982-dd1d-44b9-9134-a14e199dbaeb",
+              "leftValue": "={{ $json.name }}",
+              "rightValue": ".pdf",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Filter PDFs",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        576,
+        336
+      ],
+      "id": "46abb305-5987-4124-b4e7-0b9cf7c6654f",
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "path": "={{ $json.path }}",
+        "options": {}
+      },
+      "name": "FTP Download",
+      "type": "n8n-nodes-base.ftp",
+      "position": [
+        832,
+        240
+      ],
+      "id": "95640f70-e33c-45dd-b669-dcf73522521a",
+      "typeVersion": 1,
+      "credentials": {
+        "ftp": {
+          "id": "9pAPbpYFLdJhTgfL",
+          "name": "FTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "={{ $('PDF2OCR').item.json.headers.fileName || $('PDF2OCR').item.json.headers.filename || $('PDF2OCR').item.json.headers['x-file-name'] || $('FTP Download').item.json.name }}",
+        "driveId": "My Drive",
+        "folderId": {
+          "__rl": true,
+          "value": "1xM7mpEcE-YpwZflznT-S_un_Dfk2vb0d",
+          "mode": ""
+        },
+        "options": {}
+      },
+      "name": "Google Drive Upload",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [
+        1504,
+        176
+      ],
+      "id": "a0bb9365-6d44-435b-a649-378f76732066",
+      "typeVersion": 3,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "C8r8noHw3xuDTdPJ",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "2131211815",
+        "text": "=✅ *PDF erfolgreich verarbeitet*\n\n📄 *Datei:* `{{ $('FTP Download').item.json.name }}`\n📤 *Hochgeladen nach:* Google Drive\n🗑️ *Status:* in /imported verschoben\n⏰ *Zeit:* {{ $now.format('DD.MM.YYYY HH:mm:ss') }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "name": "Telegram Success",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        1952,
+        176
+      ],
+      "id": "d5a10ee6-0e16-4c90-b13c-f273cfa4e3f7",
+      "typeVersion": 1.2,
+      "webhookId": "d5e52d43-6619-4041-94b8-e21dfb27a95f",
+      "credentials": {
+        "telegramApi": {
+          "id": "EVgw6vzqiwBd0633",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "position": [
+        496,
+        816
+      ],
+      "id": "6fbb9213-cbc6-4ab2-8897-7903df89f58f",
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "functionCode": "// Fehlerinformationen sammeln\nconst errorNode = $json.node?.name || 'Unbekannt';\nconst errorMessage = $json.error?.message || 'Keine Fehlermeldung verfügbar';\nconst fileName = $input.first()?.json?.name || 'Unbekannte Datei'; // Sichere Referenz\nconst timestamp = new Date().toLocaleString('de-DE');\nconst stackTrace = $json.error?.stack?.substring(0, 500) || 'Kein Stack Trace';\n\nreturn {\n  json: {\n    errorNode,\n    errorMessage,\n    fileName,\n    timestamp,\n    stackTrace,\n    workflowId: $workflow.id,\n    executionId: $execution.id\n  }\n};"
+      },
+      "name": "Format Error Message",
+      "type": "n8n-nodes-base.function",
+      "position": [
+        720,
+        816
+      ],
+      "id": "3b7cd582-16e9-4d9d-b656-2401a19957c4",
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "chatId": "2131211815",
+        "text": "=❌ *FEHLER bei PDF-Verarbeitung*\n\n📄 *Datei:* `{{ $('Format Error Message').item.json.fileName }}`\n⚠️ *Fehler in Node:* `{{ $('Format Error Message').item.json.errorNode }}`\n💬 *Fehlermeldung:*\n```\n{{ $json.errorMessage }}\n```\n\n🔍 *Details:*\n• Workflow ID: `{{ $('Format Error Message').item.json.workflowId }}`\n• Execution ID: `{{ $('Format Error Message').item.json.executionId }}`\n• Zeit: {{ $('Format Error Message').item.json.timestamp }}\n\n📋 *Stack Trace:*\n```\n{{ $('Format Error Message').item.json.stackTrace }}\n```\n\n🔧 *Aktion:* Datei wurde in `/error/` Ordner verschoben.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "name": "Telegram Error Notification",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        1152,
+        816
+      ],
+      "id": "2f252fa0-db17-4014-b088-2b948cb823c5",
+      "typeVersion": 1.2,
+      "webhookId": "8a3ef826-d79c-4467-9c0f-5753daca4fda",
+      "credentials": {
+        "telegramApi": {
+          "id": "EVgw6vzqiwBd0633",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "rename",
+        "oldPath": "={{ $input.first()?.json?.name || '/unknown.pdf' }}",
+        "newPath": "=/error/{{ $input.first()?.json?.name || 'unknown.pdf' }}",
+        "options": {}
+      },
+      "name": "FTP Move to Error Folder",
+      "type": "n8n-nodes-base.ftp",
+      "position": [
+        1376,
+        816
+      ],
+      "id": "a9488f2a-2edd-44fd-b1e2-315d2286d116",
+      "typeVersion": 1,
+      "credentials": {
+        "ftp": {
+          "id": "9pAPbpYFLdJhTgfL",
+          "name": "FTP account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "Loop Back",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        496
+      ],
+      "id": "757ea09d-4681-4c8e-8d5a-3d48a838ed56"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://109.199.121.246:5000/api/ocr",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "mf_3kn5JjeNWjWQUK8CLTdWzQrPeaAPc4bt2AnirOlmxwnRIPHhoCSLzk7u6d0HUVt1FWoSD5K2QKn8HwUn8vy6v0aH3TQpcDJlMvdMMMXju42nEIS46vOJZgO5DugrVhid"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1056,
+        240
+      ],
+      "id": "18ee51c7-7dd9-4db0-979f-878e47ab0b87",
+      "name": "PDF2OCR"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "03b4d6b8-4962-4cc6-89ef-98272b3c906e",
+              "leftValue": "={{ ($('PDF2OCR').item.json.headers['content-type'] || '').toLowerCase() }}",
+              "rightValue": "application/pdf",
+              "operator": {
+                "type": "string",
+                "operation": "contains",
+                "name": "filter.operator.contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1280,
+        240
+      ],
+      "id": "15d68deb-0c93-4af2-a953-4725f0b0c3fe",
+      "name": "IF Output"
+    },
+    {
+      "parameters": {
+        "operation": "rename",
+        "oldPath": "=/OCR/{{ $('FTP Download').item.json.name }}",
+        "newPath": "=/imported/{{ $('FTP Download').item.json.name }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.ftp",
+      "typeVersion": 1,
+      "position": [
+        1728,
+        176
+      ],
+      "id": "4eae2e2e-8149-4dac-bab5-0f350da2d141",
+      "name": "FTP",
+      "credentials": {
+        "ftp": {
+          "id": "9pAPbpYFLdJhTgfL",
+          "name": "FTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "48ac66b8-930c-4fee-9808-826e25de3e12",
+              "leftValue": "={{ $json.fileName }}",
+              "rightValue": "Unbekannte Datei",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        928,
+        816
+      ],
+      "id": "a971b4c3-2204-4f6e-b35f-ae6e0c6bc9c7",
+      "name": "If"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "FTP List Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FTP List Files": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Filter PDFs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter PDFs": {
+      "main": [
+        [
+          {
+            "node": "FTP Download",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FTP Download": {
+      "main": [
+        [
+          {
+            "node": "PDF2OCR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Upload": {
+      "main": [
+        [
+          {
+            "node": "FTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Success": {
+      "main": [
+        [
+          {
+            "node": "Loop Back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Back": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Error Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error Message": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Error Notification": {
+      "main": [
+        [
+          {
+            "node": "FTP Move to Error Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF2OCR": {
+      "main": [
+        [
+          {
+            "node": "IF Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Output": {
+      "main": [
+        [
+          {
+            "node": "Google Drive Upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FTP": {
+      "main": [
+        [
+          {
+            "node": "Telegram Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Telegram Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "75c9e369-e444-4ca8-9b9a-b352960b8d45",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "39527efcfc7b2fb1030a2b56da06683634761820155fe64cc9976d48ec880438"
+  },
+  "nodeGroups": [],
+  "id": "vB78lWzosjrdowPR",
+  "tags": []
+}
